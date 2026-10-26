@@ -1,0 +1,149 @@
+/* ============================================================
+   components/panels.css — Panels, Disclosure, Meldungen, Aktionsleisten, Transport
+   Hierarchie: .panel (Hauptbereich: Rand + Schatten) → details.nested (nur Trennlinie)
+   → eingebettete Karten/Tabellen (nur Fläche oder Rand, nie beides plus Schatten)
+   ============================================================ */
+
+.panel {
+  min-width: 0;
+  padding: var(--space-4);
+  background: var(--bg-surface);
+  border: var(--border-whisper);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+}
+.panel > h2 { margin-bottom: var(--space-3); }
+.panel > * + * { margin-top: var(--space-3); }
+.panel > h2 + * { margin-top: 0; }
+
+/* ─── Disclosure (<details>/<summary>, native Bedienung bleibt) ─── */
+summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  min-height: var(--h-btn);
+  border-radius: var(--radius-sm);
+  list-style: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+summary::-webkit-details-marker { display: none; }
+summary > h2, summary > h3 { margin: 0; flex: 1; min-width: 0; cursor: pointer; }
+.disclosure-chevron {
+  color: var(--text-secondary);
+  transition: transform var(--dur-base) var(--ease);
+}
+details[open] > summary > .disclosure-chevron { transform: rotate(180deg); }
+details.panel > summary { margin: 0; }
+details.panel[open] > summary { margin-bottom: var(--space-2); }
+details.panel > * + * { margin-top: var(--space-3); }
+details.panel > summary + * { margin-top: 0; }
+
+details.nested { border-top: var(--border-whisper); padding-top: var(--space-2); }
+details.nested[open] > summary { margin-bottom: var(--space-2); }
+
+/* Einklappbare Hilfetexte */
+details.help > summary {
+  display: inline-flex;
+  min-height: 0;
+  padding-block: var(--space-1);
+  gap: var(--space-1);
+  font-size: var(--text-caption);
+  font-weight: var(--fw-semibold);
+  color: var(--text-accent);
+}
+details.help > summary .disclosure-chevron { color: inherit; }
+details.help > p { margin-top: var(--space-2); padding: var(--space-3); background: var(--bg-warm); border-radius: var(--radius-sm); }
+
+/* ─── Meldungen: Info · Warnung · Fehler · OK (Icon + Text, nie nur Farbe) ─── */
+.hint,
+.notice,
+.sync-status,
+.preview-status,
+.warnings li {
+  --msg-accent: var(--status-info);
+  --msg-bg: var(--status-info-bg);
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--msg-bg);
+  border-left: 3px solid var(--msg-accent);
+  border-radius: var(--radius-subtle);
+  font-size: var(--text-caption);
+  line-height: 1.45;
+}
+[data-level="ok"] { --msg-accent: var(--status-ok); --msg-bg: var(--status-ok-bg); }
+[data-level="warn"], [data-level="stale"], .notice.warn, .warnings li { --msg-accent: var(--status-warn); --msg-bg: var(--status-warn-bg); }
+[data-level="error"], .notice.error { --msg-accent: var(--status-error); --msg-bg: var(--status-error-bg); }
+[data-level="error"] .msg__text { font-weight: var(--fw-semibold); }
+[data-level="stale"] .msg__text { font-weight: var(--fw-semibold); }
+
+.msg__icon { display: inline-flex; flex: none; align-items: center; height: 1.45em; color: var(--msg-accent); }
+.msg__text { flex: 1; min-width: 0; }
+.msg__label { font-weight: var(--fw-bold); }
+
+.hint:empty, .sync-status:empty, .preview-status:empty, .warnings:empty { display: none; }
+.warnings { display: grid; gap: var(--space-2); }
+.notices { display: grid; gap: var(--space-2); }
+.notices:empty { display: none; }
+.routing-summary { display: grid; gap: var(--space-2); }
+.routing-summary:empty { display: none; }
+code.inline { white-space: pre-wrap; word-break: break-word; }
+
+/* Veraltetes Ergebnis: gestrichelte Randmarkierung zusätzlich zur Statusmeldung */
+#results.stale #roll-wrap,
+#results.stale #events-wrap { border-left: 3px dashed var(--status-warn); padding-left: var(--space-3); }
+
+/* ─── Eingabebereich ─── */
+.counter { font-family: var(--font-mono); font-size: var(--text-badge); color: var(--text-secondary); }
+.actions { display: grid; gap: var(--space-2); }
+.settings-form { display: grid; gap: var(--space-4); }
+.settings-group { display: grid; gap: var(--space-2); padding: var(--space-3); background: var(--bg-warm); border-radius: var(--radius-sm); }
+
+/* ─── Transportsteuerung (Wiedergabe · Stopp · Gesamtlautstärke · Export) ─── */
+.transport {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  background: var(--bg-warm);
+  border-radius: var(--radius-md);
+}
+.transport__play { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.transport__play #btn-play { flex: 1; min-width: 0; }
+.transport__volume {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.transport__volume label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--text-caption);
+  font-weight: var(--fw-semibold);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+.transport__export { width: 100%; }
+.play-status { min-height: 1.5em; font-size: var(--text-caption); }
+
+@media (min-width: 30em) {
+  .actions { grid-template-columns: auto auto; justify-content: start; }
+}
+@media (min-width: 48em) {
+  .panel { padding: var(--space-5); }
+  .panel > h2 { margin-bottom: var(--space-4); }
+  details.panel[open] > summary { margin-bottom: var(--space-3); }
+  .transport {
+    grid-template-columns: auto minmax(12rem, 22rem) auto;
+    align-items: center;
+    justify-content: start;
+    gap: var(--space-3) var(--space-5);
+  }
+  .transport__play #btn-play { flex: none; }
+  .transport__export { width: auto; }
+}

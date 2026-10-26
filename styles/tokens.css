@@ -1,0 +1,251 @@
+/* ============================================================
+   tokens.css — Design-Tokens (Warm Design System v1.0, aus Soundboard)
+   Einzige Stelle für Farben, Typografie, Abstände, Radien, Schatten.
+   Dark Mode wie im Soundboard: [data-theme="dark"] oder – ohne explizites
+   [data-theme="light"] – die Systempräferenz. Es gibt keinen Theme-Schalter.
+
+   Mit „App“ markierte Tokens gibt es im Soundboard nicht; sie leiten sich aus dessen
+   Werten ab (Status, Noten/Pausen, Spurfarben) bzw. sichern WCAG-Kontraste.
+   Kontrollwerte: node scripts/contrast.mjs
+   ============================================================ */
+
+:root {
+  color-scheme: light dark;
+
+  /* ─── Kernpalette (Soundboard) ─── */
+  --color-white:         #ffffff;
+  --color-accent:        #0075de;
+  --color-accent-active: #005bab;
+  --color-accent-focus:  #097fe8;
+  --color-on-accent:     #ffffff;               /* App: Text auf Akzentflächen */
+
+  /* Warme Neutralskala */
+  --warm-white:    #f6f5f4;
+  --warm-dark:     #31302e;
+  --warm-gray-500: #615d59;
+  --warm-gray-300: #a39e98;
+
+  /* Semantische Akzente (Soundboard) */
+  --color-teal:   #2a9d99;
+  --color-green:  #1aae39;
+  --color-orange: #dd5b00;
+  --color-brown:  #523410;
+
+  /* Badge */
+  --badge-bg:   #f2f9ff;
+  --badge-text: #097fe8;
+
+  /* ─── Semantische Aliase (Soundboard) ─── */
+  --bg-page:    #ffffff;
+  --bg-surface: #ffffff;
+  --bg-warm:    #f6f5f4;
+  --bg-overlay: rgba(0, 0, 0, 0.40);
+
+  --text-primary:   rgba(0, 0, 0, 0.95);
+  --text-secondary: #615d59;
+  --text-muted:     #a39e98;                    /* nur Platzhalter/Deaktiviertes: Kontrast < 4,5:1 */
+  --text-link:      #0075de;
+  --text-accent:    #005bab;                    /* App: Akzenttext auf warmen Flächen (≥ 4,5:1) */
+
+  --border-whisper: 1px solid rgba(0, 0, 0, 0.1);
+  --border-color:   rgba(0, 0, 0, 0.1);
+  --border-medium:  1px solid rgba(0, 0, 0, 0.18);
+  --border-input:   #8f8a85;                    /* App: Feldrand ≥ 3:1 (WCAG 1.4.11) */
+  --border-focus:   #097fe8;
+
+  /* ─── Status (App, abgeleitet aus Soundboard-Toast: Akzent/Orange/Teal/Braun) ─── */
+  --status-info:      var(--color-accent);
+  --status-info-bg:   var(--badge-bg);
+  --status-ok:        var(--color-teal);
+  --status-ok-bg:     color-mix(in srgb, var(--color-teal) 9%, var(--bg-surface));
+  --status-warn:      var(--color-brown);
+  --status-warn-bg:   color-mix(in srgb, var(--status-warn) 8%, var(--bg-surface));
+  --status-error:     var(--color-orange);
+  --status-error-bg:  color-mix(in srgb, var(--status-error) 8%, var(--bg-surface));
+  --text-error:       #a84300;                  /* App: Fehlertext auf Weiß/Warm ≥ 4,5:1 */
+
+  /* ─── Noten, Pausen, Auswahl (App) ─── */
+  --color-rest:   var(--color-brown);           /* Pausen: gestrichelt + Label */
+  --color-linked: var(--color-orange);          /* Verknüpfung/Auswahl: Kontur + Icon */
+  --roll-row:       var(--bg-warm);
+  --roll-row-black: color-mix(in srgb, var(--text-primary) 6%, var(--bg-warm));
+
+  /* Spurfarben (App; Notenbeschriftung --on-track ≥ 4,5:1 auf jeder Spurfarbe) */
+  --on-track: #ffffff;
+  --track-1: #0075de;
+  --track-2: #b45309;
+  --track-3: #047857;
+  --track-4: #9333ea;
+  --track-5: #be123c;
+  --track-6: #0e7490;
+  --track-7: #4d7c0f;
+  --track-8: #a21caf;
+
+  /* ─── Typografie ─── */
+  --font-sans: 'Inter', -apple-system, system-ui, 'Segoe UI', Helvetica, Arial, sans-serif;
+  --font-mono: 'Roboto Mono', 'Consolas', 'Menlo', ui-monospace, monospace;
+
+  --text-h3:      1.625rem;
+  --text-h4:      1.375rem;
+  --text-h5:      1.125rem;                     /* App: Panel-Überschriften */
+  --text-body-lg: 1.25rem;
+  --text-body:    1rem;
+  --text-nav:     0.9375rem;
+  --text-caption: 0.875rem;
+  --text-badge:   0.75rem;
+
+  --fw-regular:  400;
+  --fw-medium:   500;
+  --fw-semibold: 600;
+  --fw-bold:     700;
+
+  --lh-tight: 1.25;
+  --lh-base:  1.5;
+
+  /* ─── Spacing (8px-Raster, Soundboard) ─── */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --space-7: 3rem;
+
+  /* ─── Formen ─── */
+  --radius-micro:  4px;
+  --radius-subtle: 5px;
+  --radius-sm:     8px;
+  --radius-md:     12px;
+  --radius-lg:     16px;
+  --radius-pill:   9999px;
+  --radius-circle: 100%;
+
+  /* ─── Schatten (Soundboard) ─── */
+  --shadow-card:
+    rgba(0,0,0,0.040) 0px 4px    18px   0px,
+    rgba(0,0,0,0.027) 0px 2.025px 7.85px 0px,
+    rgba(0,0,0,0.020) 0px 0.8px   2.93px 0px,
+    rgba(0,0,0,0.010) 0px 0.175px 1.04px 0px;
+  --shadow-focus:
+    0 0 0 2px #ffffff,
+    0 0 0 4px #097fe8;
+
+  /* ─── Bedienelemente ─── */
+  --h-btn: 2.75rem;                              /* 44px Touch-Ziel */
+
+  /* ─── Animation (Soundboard) ─── */
+  --dur-fast: 100ms;
+  --dur-base: 150ms;
+  --ease:     cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@media (min-width: 48em) and (pointer: fine) {
+  :root { --h-btn: 2.5rem; }
+}
+
+/* ─── Dark Mode: explizit ─── */
+[data-theme="dark"] {
+  color-scheme: dark;
+  --bg-page:         #191919;
+  --bg-surface:      #202020;
+  --bg-warm:         #252525;
+  --bg-overlay:      rgba(0, 0, 0, 0.65);
+
+  --text-primary:    rgba(255, 255, 255, 0.92);
+  --text-secondary:  #9b9a97;
+  --text-muted:      #6b6b69;
+  --text-link:       #4d9de0;
+  --text-accent:     #4d9de0;
+
+  --border-color:    rgba(255, 255, 255, 0.09);
+  --border-whisper:  1px solid rgba(255, 255, 255, 0.09);
+  --border-medium:   1px solid rgba(255, 255, 255, 0.15);
+  --border-input:    #7a7977;
+
+  --color-accent:        #4d9de0;
+  --color-accent-active: #3a7fc1;
+  --color-accent-focus:  #4d9de0;
+  --color-on-accent:     #08131f;
+  --badge-bg:   rgba(77, 157, 224, 0.12);
+  --badge-text: #4d9de0;
+  --warm-gray-500: #9b9a97;
+  --warm-gray-300: #6b6b69;
+
+  --status-warn:   #e2a869;
+  --status-error:  #ff8a4c;
+  --text-error:    #ff9d66;
+  --color-rest:    #e2a869;
+  --color-linked:  #ff8a4c;
+  --roll-row-black: color-mix(in srgb, #ffffff 6%, var(--bg-warm));
+
+  --on-track: #0a1020;
+  --track-1: #4d9de0;
+  --track-2: #fbbf24;
+  --track-3: #34d399;
+  --track-4: #d8b4fe;
+  --track-5: #fda4af;
+  --track-6: #67e8f9;
+  --track-7: #bef264;
+  --track-8: #f0abfc;
+
+  --shadow-card:
+    rgba(0,0,0,0.25) 0px 4px 18px 0px,
+    rgba(0,0,0,0.20) 0px 2px  7px 0px;
+  --shadow-focus:
+    0 0 0 2px #202020,
+    0 0 0 4px #4d9de0;
+}
+
+/* ─── Dark Mode: Systempräferenz (außer bei explizitem Light) ─── */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg-page:         #191919;
+    --bg-surface:      #202020;
+    --bg-warm:         #252525;
+    --bg-overlay:      rgba(0, 0, 0, 0.65);
+
+    --text-primary:    rgba(255, 255, 255, 0.92);
+    --text-secondary:  #9b9a97;
+    --text-muted:      #6b6b69;
+    --text-link:       #4d9de0;
+    --text-accent:     #4d9de0;
+
+    --border-color:    rgba(255, 255, 255, 0.09);
+    --border-whisper:  1px solid rgba(255, 255, 255, 0.09);
+    --border-medium:   1px solid rgba(255, 255, 255, 0.15);
+    --border-input:    #7a7977;
+
+    --color-accent:        #4d9de0;
+    --color-accent-active: #3a7fc1;
+    --color-accent-focus:  #4d9de0;
+    --color-on-accent:     #08131f;
+    --badge-bg:   rgba(77, 157, 224, 0.12);
+    --badge-text: #4d9de0;
+    --warm-gray-500: #9b9a97;
+    --warm-gray-300: #6b6b69;
+
+    --status-warn:   #e2a869;
+    --status-error:  #ff8a4c;
+    --text-error:    #ff9d66;
+    --color-rest:    #e2a869;
+    --color-linked:  #ff8a4c;
+    --roll-row-black: color-mix(in srgb, #ffffff 6%, var(--bg-warm));
+
+    --on-track: #0a1020;
+    --track-1: #4d9de0;
+    --track-2: #fbbf24;
+    --track-3: #34d399;
+    --track-4: #d8b4fe;
+    --track-5: #fda4af;
+    --track-6: #67e8f9;
+    --track-7: #bef264;
+    --track-8: #f0abfc;
+
+    --shadow-card:
+      rgba(0,0,0,0.25) 0px 4px 18px 0px,
+      rgba(0,0,0,0.20) 0px 2px  7px 0px;
+    --shadow-focus:
+      0 0 0 2px #202020,
+      0 0 0 4px #4d9de0;
+  }
+}

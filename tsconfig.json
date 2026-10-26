@@ -1,0 +1,4 @@
+{
+  "compilerOptions": { "target": "ES2022", "module": "ES2022", "moduleResolution": "bundler", "checkJs": true, "allowJs": true, "noEmit": true, "strict": true, "lib": ["ES2023", "DOM"], "skipLibCheck": true, "types": [] },
+  "include": ["core/*.js", "ui/*.js", "audio/*.js", "export/*.js"]
+}

@@ -1,0 +1,63 @@
+/* ============================================================
+   layout.css — Seitengerüst, Header, Hauptraster (mobile-first)
+   ============================================================ */
+
+.app {
+  width: 100%;
+  max-width: 80rem;
+  margin-inline: auto;
+  padding: var(--space-4) var(--space-4) var(--space-6);
+  display: grid;
+  gap: var(--space-4);
+  align-content: start;
+}
+.app > * { min-width: 0; }
+
+/* ─── Kopfbereich ─── */
+.site-header {
+  display: grid;
+  gap: var(--space-2);
+  padding-top: var(--space-2);
+}
+.site-header h1 {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-h4);
+  font-weight: var(--fw-bold);
+  letter-spacing: -0.3px;
+}
+.site-header h1 .ui-icon { color: var(--color-accent); width: 1.1em; height: 1.1em; }
+.site-header p {
+  max-width: 68ch;
+  font-size: var(--text-caption);
+  color: var(--text-secondary);
+}
+.site-header strong { color: var(--text-primary); }
+
+/* ─── Eingabe + Einstellungen: einspaltig, ab ca. 960 px nebeneinander ─── */
+.layout {
+  display: grid;
+  gap: var(--space-4);
+  grid-template-columns: minmax(0, 1fr);
+}
+.layout > * { min-width: 0; }
+
+/* ─── Arbeitsbereiche (Ergebnis, Zuordnung, Binärvorschau) ─── */
+#results {
+  display: grid;
+  gap: var(--space-4);
+}
+#results > * { min-width: 0; }
+
+.site-footer { padding-top: var(--space-2); }
+
+@media (min-width: 48em) {
+  .app { padding: var(--space-5) var(--space-5) var(--space-7); gap: var(--space-5); }
+  .site-header h1 { font-size: var(--text-h3); }
+  #results { gap: var(--space-5); }
+}
+
+@media (min-width: 60em) {
+  .layout { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: var(--space-5); align-items: start; }
+}

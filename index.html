@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Text zu Musik – Bytes, Noten, Pausen</title>
+  <meta name="description" content="Wandelt Text deterministisch über UTF-8-Bytes in Noten und Pausen um und macht jeden Schritt sichtbar.">
+  <link rel="preload" href="fonts/inter-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="styles/tokens.css">
+  <link rel="stylesheet" href="styles/base.css">
+  <link rel="stylesheet" href="styles/layout.css">
+  <link rel="stylesheet" href="styles/components/buttons.css">
+  <link rel="stylesheet" href="styles/components/forms.css">
+  <link rel="stylesheet" href="styles/components/panels.css">
+  <link rel="stylesheet" href="styles/components/tracks.css">
+  <link rel="stylesheet" href="styles/components/data.css">
+  <link rel="stylesheet" href="styles/components/visualizations.css">
+</head>
+<body>
+  <a class="skip" href="#sec-result">Zum Ergebnis springen</a>
+  <div id="status" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
+
+  <div class="app">
+  <header class="site-header">
+    <h1><span data-icon-slot="music"></span>Text zu Musik</h1>
+    
+  </header>
+
+  <main class="layout">
+    <section class="panel" aria-labelledby="h-input">
+      <h2 id="h-input">Eingabe</h2>
+      <div class="field">
+        <div class="field__head">
+          <label for="text-input">Dein Text</label>
+          <p id="input-count" class="counter">0 / 50.000 Zeichen</p>
+        </div>
+        <textarea id="text-input" rows="7" autocomplete="off" spellcheck="false" aria-describedby="input-hint input-count"></textarea>
+      </div>
+      <p id="input-hint" class="hint" data-level="info">Gib einen Text ein.</p>
+      <p class="muted small">1 Byte = 1 Note: Ein Zeichen wie „ä“ (2 Bytes) ergibt zwei Noten, „😀“ (4 Bytes) vier. Leerraum und alle Satzzeichen werden zu Pausen, nicht zu Noten.</p>
+      <div class="actions">
+        <button type="button" id="btn-convert" class="btn btn--accent btn--lg" disabled><span data-icon-slot="wand-sparkles"></span>Umwandeln</button>
+        <button type="button" id="btn-sample" class="btn btn--lg"><span data-icon-slot="file-music"></span>Beispieltext laden</button>
+      </div>
+    </section>
+
+    <section class="panel" aria-labelledby="h-settings">
+      <h2 id="h-settings">Einstellungen</h2>
+      <form id="settings" class="settings-form" novalidate>
+        <p class="muted small">Tonleiter, Grundton, Tonumfang, Zeichenregel und Instrument stellst du pro Spur im Bereich „Spuren“ ein. Hier stehen nur Einstellungen, die für <strong>alle</strong> Spuren gelten.</p>
+        <fieldset class="settings-group">
+          <legend>Dauern in Beats <span class="muted small">(480 Ticks = 1 Beat, für alle Spuren)</span></legend>
+          <div class="field-row">
+            <div class="field"><label for="f-note">Note</label><input id="f-note" name="noteTicks" type="number" min="0.125" max="2" step="0.125" inputmode="decimal" aria-describedby="e-noteTicks"><p class="field-error" id="e-noteTicks"></p></div>
+            <div class="field"><label for="f-word">Wortpause</label><input id="f-word" name="wordPauseTicks" type="number" min="0" max="8" step="0.125" inputmode="decimal" aria-describedby="e-wordPauseTicks"><p class="field-error" id="e-wordPauseTicks"></p></div>
+            <div class="field"><label for="f-sentence">Satzpause</label><input id="f-sentence" name="sentencePauseTicks" type="number" min="0" max="8" step="0.125" inputmode="decimal" aria-describedby="e-sentencePauseTicks"><p class="field-error" id="e-sentencePauseTicks"></p></div>
+            <div class="field"><label for="f-paragraph">Absatzpause</label><input id="f-paragraph" name="paragraphPauseTicks" type="number" min="0" max="8" step="0.125" inputmode="decimal" aria-describedby="e-paragraphPauseTicks"><p class="field-error" id="e-paragraphPauseTicks"></p></div>
+          </div>
+          <details class="help">
+            <summary>Wie entstehen Pausen?<span data-icon-slot="chevron-down" data-icon-class="disclosure-chevron"></span></summary>
+            <p class="muted small" id="pause-help"><strong>Wortpause:</strong> Leerraum und alle Satzzeichen außer <code>. ! ? …</code> (z. B. <code>, ; : – ( ) „ “</code>). <strong>Satzpause:</strong> <code>. ! ? …</code>. <strong>Absatzpause:</strong> mindestens zwei Zeilenumbrüche, hat Vorrang. Ein zusammenhängender Lauf ergibt nur <em>eine</em> Pause, die stärkste Art gewinnt.</p>
+          </details>
+        </fieldset>
+        <fieldset class="settings-group">
+          <legend>Tempo und Verarbeitung</legend>
+          <div class="field">
+            <label for="f-tempo">Tempo in BPM <span class="muted small">(gilt für alle Spuren)</span></label>
+            <input id="f-tempo" name="tempoBpm" type="number" min="20" max="300" step="1" inputmode="numeric" aria-describedby="e-tempoBpm">
+            <p class="field-error" id="e-tempoBpm"></p>
+          </div>
+          <div class="field check"><input id="f-parapause" name="paragraphPause" type="checkbox"><label for="f-parapause">Absatzpause verwenden (zwei Zeilenumbrüche)</label></div>
+          <div class="field check"><input id="f-nfc" name="normalizeNfc" type="checkbox"><label for="f-nfc">Unicode-Normalisierung NFC</label></div>
+        </fieldset>
+        <ul id="settings-warnings" class="warnings" aria-label="Hinweise zur Einstellung"></ul>
+        <button type="button" id="btn-reset" class="btn btn--lg"><span data-icon-slot="rotate-ccw"></span>Standardwerte</button>
+      </form>
+    </section>
+  </main>
+
+  <div id="results">
+    <details class="panel" id="sec-result" open>
+      <summary><h2>Ergebnis</h2><span data-icon-slot="chevron-down" data-icon-class="disclosure-chevron"></span></summary>
+      <p id="sync-status" class="sync-status" data-level="ok"></p>
+      <div id="notices" class="notices"></div>
+      <div class="transport" role="group" aria-label="Klangvorschau und MIDI-Export">
+        <div class="transport__play">
+          <button type="button" id="btn-play" class="btn btn--accent btn--lg" disabled><span data-icon-slot="play"></span>Vorschau abspielen</button>
+          <button type="button" id="btn-stop" class="btn btn--lg btn--collapse" disabled><span data-icon-slot="square"></span><span class="btn__label">Stopp</span></button>
+        </div>
+        <div class="transport__volume">
+          <label for="f-volume"><span data-icon-slot="volume-2"></span>Gesamtlautstärke</label>
+          <input id="f-volume" type="range" min="0" max="100" step="1" value="40" aria-describedby="play-status">
+        </div>
+        <button type="button" id="btn-export" class="btn btn--lg transport__export" disabled><span data-icon-slot="download"></span>MIDI-Datei exportieren</button>
+      </div>
+      <p id="play-status" class="play-status muted" aria-live="off">Klangvorschau mit einfachen synthetischen Instrumentklängen (keine Samples), alle aktiven Spuren gleichzeitig. Pausen bleiben still.</p>
+      <p id="export-hint" class="muted small"></p>
+
+      <section class="tracks" aria-labelledby="h-tracks">
+        <div class="tracks-head">
+          <h3 id="h-tracks">Spuren</h3>
+          <button type="button" id="btn-add-track" class="btn"><span data-icon-slot="plus"></span>Spur hinzufügen</button>
+          <button type="button" id="btn-add-vc" class="btn"><span data-icon-slot="plus"></span>Vokale und Konsonanten</button>
+        </div>
+        <p class="muted small">Alle Spuren teilen denselben Text, dieselben Pausen und dasselbe Tempo. Jede Spur wählt per Zeichenregel, welche Zeichen sie spielt; alle anderen Zeitpunkte bleiben auf dieser Spur still. Jede Spur hat eigene Tonleiter, Grundton, Tonumfang und eigenes Instrument.</p>
+        <ul id="tracks-list" class="track-list" aria-label="Spuren"></ul>
+        <div id="routing-summary" class="routing-summary" aria-live="polite"></div>
+      </section>
+
+      <p id="empty-state" class="muted">Noch keine Umwandlung. Gib einen Text ein oder lade den Beispieltext und klicke auf „Umwandeln“.</p>
+      <div id="result-body" hidden>
+        <p id="summary" class="muted"></p>
+        <p id="focus-info" class="focus-info" aria-live="polite"><span class="muted">Klicke oder fokussiere ein Zeichen, ein Byte oder ein Ereignis, um die Verbindungen in allen Ansichten zu sehen.</span> <button type="button" id="btn-clear-focus" class="btn" hidden><span data-icon-slot="x"></span>Auswahl aufheben</button></p>
+        <div id="roll-wrap"></div>
+        <details class="nested" id="sec-events">
+          <summary><h3>Ereignisliste</h3><span data-icon-slot="chevron-down" data-icon-class="disclosure-chevron"></span></summary>
+          <div id="events-wrap"></div>
+        </details>
+      </div>
+    </details>
+    <details class="panel" id="sec-mapping">
+      <summary><h2>Zuordnung: Byte → Ton</h2><span data-icon-slot="chevron-down" data-icon-class="disclosure-chevron"></span></summary>
+      <div id="mapping-wrap"></div>
+    </details>
+  </div>
+
+  <details id="preview" class="panel">
+    <summary><h2 id="h-preview">Binärcode deines Textes (live)</h2><span data-icon-slot="chevron-down" data-icon-class="disclosure-chevron"></span></summary>
+    <p class="muted small">Entsteht sofort beim Tippen, Einfügen und Löschen – ohne „Umwandeln“. Pro Zeichen: UTF-8-Bytes als 8-Bit-Blöcke mit Dezimalwert. Mehrbytezeichen wie „ä“ oder „😀“ stehen gruppiert in einer Karte.</p>
+    <p id="preview-status" class="preview-status" data-level="info"></p>
+    <div id="binary-wrap"></div>
+  </details>
+
+  <footer class="site-footer muted small">Alle Berechnungen laufen lokal im Browser. Details zu den Regeln: <code>docs/regeln.md</code>.</footer>
+  </div>
+  <script type="module" src="ui/app.js"></script>
+</body>
+</html>

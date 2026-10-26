@@ -1,0 +1,111 @@
+/* ============================================================
+   components/buttons.css — Button-System (nach Soundboard .btn)
+   Varianten: Standard (sekundär) · --accent (primär) · --ghost · --danger · --icon · --lg
+   Zustände: [aria-pressed=true] = aktiv (Stumm/Solo)
+   ============================================================ */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  height: var(--h-btn);
+  padding: 0 var(--space-3);
+  border: var(--border-whisper);
+  border-radius: var(--radius-micro);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+  font-size: var(--text-badge);
+  font-weight: var(--fw-semibold);
+  letter-spacing: 0.125px;
+  text-transform: uppercase;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    color var(--dur-base) var(--ease),
+    background var(--dur-base) var(--ease),
+    border-color var(--dur-base) var(--ease),
+    transform var(--dur-fast) var(--ease);
+}
+.btn .ui-icon { width: 1.35em; height: 1.35em; vertical-align: 0; }
+
+.btn:hover:not(:disabled) {
+  color: var(--text-primary);
+  border-color: var(--border-input);
+  background: var(--bg-warm);
+}
+.btn:active:not(:disabled) { transform: scale(0.97); }
+.btn:disabled { opacity: 0.55; cursor: not-allowed; }
+
+/* Primär */
+.btn--accent {
+  background: var(--color-accent);
+  border-color: transparent;
+  color: var(--color-on-accent);
+}
+.btn--accent:hover:not(:disabled) {
+  background: var(--color-accent-active);
+  border-color: transparent;
+  color: var(--color-on-accent);
+}
+:root[data-theme="dark"] .btn--accent:hover:not(:disabled) { background: #6cb0ec; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .btn--accent:hover:not(:disabled) { background: #6cb0ec; }
+}
+
+/* Tertiär */
+.btn--ghost { background: transparent; border-color: transparent; }
+.btn--ghost:hover:not(:disabled) { background: var(--bg-warm); border-color: var(--border-color); }
+
+/* Gefahr */
+.btn--danger {
+  background: transparent;
+  border-color: var(--status-error);
+  color: var(--text-error);
+}
+.btn--danger:hover:not(:disabled) {
+  background: var(--status-error-bg);
+  border-color: var(--status-error);
+  color: var(--text-error);
+}
+
+/* Umschalter (Stumm/Solo) */
+.btn[aria-pressed="true"] {
+  background: var(--badge-bg);
+  border-color: var(--color-accent);
+  color: var(--text-accent);
+}
+.btn[aria-pressed="true"]:hover:not(:disabled) { background: var(--badge-bg); border-color: var(--color-accent); color: var(--text-accent); }
+
+/* Nur Icon: Trefferfläche = var(--h-btn) × var(--h-btn); zugänglicher Name über .btn__label (sr-only) bzw. aria-label */
+.btn--icon { width: var(--h-btn); padding: 0; flex: none; }
+
+/* Hauptaktionen (Umwandeln, Wiedergabe) */
+.btn--lg {
+  padding: 0 var(--space-4);
+  font-size: var(--text-nav);
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+/* Auf kleinen Displays: Beschriftung nur für Screenreader, Button wird zum Icon-Button */
+@media (max-width: 29.99em) {
+  .btn--collapse { width: var(--h-btn); padding: 0; }
+  .btn--collapse .btn__label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .btn:active:not(:disabled) { transform: none; }
+}

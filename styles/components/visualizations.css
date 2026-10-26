@@ -1,0 +1,52 @@
+/* ============================================================
+   components/visualizations.css — Piano-Roll (SVG, Klassen aus ui/piano-roll.js)
+   Eigener horizontaler Scrollbereich; die Seite scrollt nie seitlich.
+   Alle Farben über Tokens → Light/Dark ohne Sonderregeln.
+   ============================================================ */
+
+.roll-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x pan-y;
+  padding-bottom: var(--space-1);
+  background: var(--bg-surface);
+  border: var(--border-whisper);
+  border-radius: var(--radius-sm);
+}
+.roll { display: block; max-width: none; font-family: var(--font-sans); }
+
+/* Spuren-Zeilen (Lanes) und Klaviatur-Raster */
+.roll-lane-bg { fill: var(--roll-row); stroke: var(--border-color); }
+.roll-row.black { fill: var(--roll-row-black); }
+.roll-beat { stroke: var(--border-color); stroke-width: 1; }
+.roll-lane-name { fill: var(--text-primary); font-size: 11px; font-weight: 700; }
+.roll-lane-sub, .roll-xlabel, .roll-ylabel { fill: var(--text-secondary); font-size: 10px; }
+.roll-xlabel { font-family: var(--font-mono); }
+
+/* Ereignisse */
+.roll-ev { cursor: pointer; }
+.roll-ev:focus-visible { outline: none; }
+
+.roll-ev.note rect { fill: var(--tc, var(--track-1)); stroke: var(--text-primary); stroke-opacity: 0.35; stroke-width: 1; }
+.roll-note-label {
+  fill: var(--on-track);
+  font-size: 10px;
+  font-weight: 700;
+  paint-order: stroke;
+  stroke: var(--tc, var(--track-1));
+  stroke-width: 2px;
+  pointer-events: none;
+}
+
+.roll-ev.rest rect { fill: var(--color-rest); fill-opacity: 0.14; stroke: var(--color-rest); stroke-width: 1.5; stroke-dasharray: 4 3; }
+.roll-rest-label { fill: var(--color-rest); font-size: 10px; font-weight: 700; pointer-events: none; }
+.roll-rest-icon { fill: var(--color-rest); pointer-events: none; }
+
+/* Verknüpfung / Fokus / Wiedergabe: dicke Kontur + Raute (nie nur Farbe) */
+.roll-mark { display: none; fill: var(--color-linked); pointer-events: none; }
+.roll-ev.linked .roll-mark, .roll-ev:focus .roll-mark { display: block; }
+.roll-ev.linked rect, .roll-ev:focus rect { stroke: var(--color-linked); stroke-opacity: 1; stroke-width: 3.5; stroke-dasharray: none; }
+.roll-ev.linked, g.linked { outline: none; }
+.roll-ev.playing rect, .roll-ev.note.playing rect { stroke: var(--color-linked); stroke-opacity: 1; stroke-width: 3.5; stroke-dasharray: 2 2; }

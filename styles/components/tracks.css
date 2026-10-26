@@ -1,0 +1,139 @@
+/* ============================================================
+   components/tracks.css — Spuren: Karten, Aktionen, Editor, Routing
+   Spurfarbe (--tc) ist ein semantischer Akzent: Kartenrand, Kürzel, Noten.
+   ============================================================ */
+
+.tc0 { --tc: var(--track-1); } .tc1 { --tc: var(--track-2); } .tc2 { --tc: var(--track-3); } .tc3 { --tc: var(--track-4); }
+.tc4 { --tc: var(--track-5); } .tc5 { --tc: var(--track-6); } .tc6 { --tc: var(--track-7); } .tc7 { --tc: var(--track-8); }
+
+.tracks { display: grid; gap: var(--space-3); }
+.tracks-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+}
+.tracks-head h3 { flex: 1 1 100%; font-size: var(--text-h5); letter-spacing: -0.2px; }
+.tracks-head .btn { flex: 1 1 auto; }
+.tracks > p { max-width: 75ch; }
+
+.track-list { display: grid; gap: var(--space-3); }
+.track-empty {
+  padding: var(--space-4);
+  border: 1px dashed var(--border-input);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+}
+
+/* ─── Karte ─── */
+.track-card {
+  min-width: 0;
+  padding: var(--space-3);
+  background: var(--bg-warm);
+  border: var(--border-whisper);
+  border-left: 4px solid var(--tc, var(--track-1));
+  border-radius: var(--radius-sm);
+}
+.track-card[data-state="inactive"] { border-style: dashed; border-left-style: dashed; background: transparent; }
+.track-card[data-state="muted"], .track-card[data-state="silenced"] { border-left-style: dotted; }
+.track-card[data-state="solo"] { border-color: var(--color-accent); border-left-color: var(--tc, var(--track-1)); background: var(--badge-bg); }
+
+.track-summary { display: grid; gap: var(--space-3); min-width: 0; }
+
+.track-title { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); min-width: 0; }
+.track-badge {
+  display: inline-block;
+  min-width: 2.25rem;
+  padding: 1px var(--space-2);
+  border: 2px solid var(--tc, var(--track-1));
+  border-radius: var(--radius-micro);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--text-badge);
+  font-weight: var(--fw-medium);
+  text-align: center;
+}
+.track-name { flex: 1 1 8rem; min-width: 0; font-size: var(--text-body); overflow-wrap: anywhere; }
+.track-status {
+  padding: 1px var(--space-2);
+  border: var(--border-whisper);
+  border-radius: var(--radius-pill);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font-size: var(--text-badge);
+  font-weight: var(--fw-semibold);
+}
+.track-card[data-state="solo"] .track-status { color: var(--text-accent); border-color: var(--color-accent); }
+
+/* Kurzinfo */
+.track-info { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr)); gap: var(--space-2) var(--space-4); }
+.track-info > div { min-width: 0; }
+.track-info dt { font-size: var(--text-badge); font-weight: var(--fw-semibold); letter-spacing: 0.125px; text-transform: uppercase; color: var(--text-secondary); }
+.track-info dd { font-size: var(--text-caption); overflow-wrap: anywhere; }
+
+/* ─── Aktionen: Mischer (aktiv · Stumm · Solo · Pegel) und Werkzeuge ─── */
+.track-actions { display: grid; gap: var(--space-2); }
+.track-actions__mix { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.track-actions__mix .check { flex: 1 1 auto; }
+.track-actions__mix > .btn { flex: 1 1 auto; }
+.track-volume {
+  flex: 1 1 100%;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-2);
+}
+.track-volume label { display: inline-flex; align-items: center; gap: var(--space-1); font-size: var(--text-caption); font-weight: var(--fw-semibold); color: var(--text-secondary); }
+.track-actions__tools { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.track-actions__tools .btn--edit { flex: 1 1 100%; }
+
+.track-card .field-error { margin-top: var(--space-1); }
+
+/* ─── Editor in der Karte ─── */
+.track-editor {
+  display: grid;
+  gap: var(--space-4);
+  margin-top: var(--space-3);
+  padding: var(--space-3);
+  background: var(--bg-surface);
+  border: var(--border-whisper);
+  border-radius: var(--radius-sm);
+}
+.track-editor fieldset { display: grid; gap: var(--space-3); }
+.track-editor fieldset + fieldset { padding-top: var(--space-3); border-top: var(--border-whisper); }
+.track-editor > .btn { justify-self: start; }
+
+.trk-tag {
+  display: inline-block;
+  padding: 0 var(--space-1);
+  border: 1px solid var(--tc, var(--border-input));
+  border-radius: var(--radius-micro);
+  font-family: var(--font-mono);
+  font-size: var(--text-badge);
+  font-weight: var(--fw-medium);
+  white-space: nowrap;
+}
+
+@media (min-width: 30em) {
+  .tracks-head h3 { flex: 1 1 auto; }
+  .tracks-head .btn { flex: 0 0 auto; }
+  .track-actions__tools { justify-content: flex-start; }
+  .track-actions__tools .btn--edit { flex: 1 1 auto; }
+  .track-actions__tools .btn--danger { margin-left: auto; }
+}
+@media (min-width: 48em) {
+  .track-card { padding: var(--space-4); }
+  .track-actions__mix { flex-wrap: nowrap; }
+  .track-actions__mix .check, .track-actions__mix > .btn { flex: none; }
+  .track-volume { flex: 1 1 8rem; min-width: 8rem; max-width: 12rem; }
+  .track-actions__tools .btn--edit { flex: none; }
+  .track-actions__tools .btn--danger { margin-left: auto; }
+  .track-editor { padding: var(--space-4); }
+}
+/* Mischer und Werkzeuge nur bei sehr breiten Karten nebeneinander */
+@media (min-width: 80em) {
+  .track-actions { grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--space-2) var(--space-4); }
+  .track-actions__tools { justify-content: flex-end; }
+  .track-actions__tools .btn--danger { margin-left: 0; }
+}
