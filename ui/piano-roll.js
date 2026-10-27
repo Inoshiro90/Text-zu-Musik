@@ -1,7 +1,7 @@
 // @ts-check
 /** SVG-Piano-Roll mit einer Spur (Lane) je aktiver Spur auf gemeinsamer Zeitachse. Zeichnet nur eine Seite von Master-Ereignissen. */
 import { noteLabel } from '../core/scales.js';
-import { getInstrument } from '../audio/instrument-catalog.js';
+import { resolveInstrument } from '../audio/instrument-catalog.js';
 import { esc, beats, PAUSE_LABEL } from './dom.js';
 
 const PX_PER_TICK = 0.3;
@@ -77,7 +77,7 @@ export function renderPianoRoll(master, lanes, page) {
   for (const l of laneInfo) {
     const ly = /** @type {any} */ (l).y;
     const cls = trackColorClass(l.idx);
-    const inst = getInstrument(l.t.instrument.program);
+    const inst = resolveInstrument(l.t.instrument);
     g += `<g class="roll-lane ${cls}"><rect class="roll-lane-bg" x="${LEFT}" y="${ly}" width="${width - LEFT}" height="${l.h}"/>`;
     for (let m = l.lo; m <= l.hi; m++) {
       if ([1, 3, 6, 8, 10].includes(m % 12)) g += `<rect class="roll-row black" x="${LEFT}" y="${ly + (l.hi - m) * l.rowH}" width="${width - LEFT}" height="${l.rowH}"/>`;

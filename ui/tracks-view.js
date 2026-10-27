@@ -1,8 +1,9 @@
 // @ts-check
 /** Spuren-Oberfläche: Karten mit Kurzinfo und Bedienelementen, aufklappbarer Editor, Routing-Übersicht. Keine fachliche Logik. */
-import { RULE_TYPES, describeRule, parseCustomChars } from '../core/tracks.js';
+import { RULE_TYPES, RULE_GROUPS, describeRule, parseCustomChars, sonorityDefaults } from '../core/tracks.js';
+import { isSonorityId } from '../core/sonority-classes.js';
 import { SCALES, PITCH_CLASS_NAMES, noteLabel } from '../core/scales.js';
-import { CATEGORIES, INSTRUMENTS, getInstrument, primaryCategory, searchInstruments } from '../audio/instrument-catalog.js';
+import { CATEGORIES, INSTRUMENTS, primaryCategory, resolveInstrument, searchEntries, instrumentKey } from '../audio/instrument-catalog.js';
 import { esc, num, iconSvg, errorInner, noticeHtml } from './dom.js';
 import { trackColorClass } from './piano-roll.js';
 
@@ -18,11 +19,11 @@ export function describeMapping(m) {
 
 /** Kurzinfo einer Spur (für die Karte). @param {import('../core/tracks.js').TrackConfig} t @param {import('../core/pipeline.js').TrackResult|undefined} res @param {number} index */
 export function trackInfoHtml(t, res, index) {
-  const inst = getInstrument(t.instrument.program);
-  const cat = primaryCategory(t.instrument.program);
+  const inst = resolveInstrument(t.instrument);
+  const cat = primaryCategory(t.instrument);
   const notes = res ? `${num(res.noteCount)} Note${res.noteCount === 1 ? '' : 'n'} · ${num(res.matchedChars)} Zeichen` : '';
   return `<dl class="track-info"><div><dt>Zeichenregel</dt><dd>${esc(describeRule(t.rule))}</dd></div>` +
-    `<div><dt>Instrument</dt><dd>${esc(inst.name)} <span class="muted">(GM ${inst.gmNumber}, ${esc(cat.label)})</span></dd></div>` +
+    `<div><dt>Instrument</dt><dd>${esc(inst.name)} <span class="muted">(${inst.sound ? `Klangprofil, MIDI-Export: ${esc(inst.gmName)}, GM ${inst.gmNumber}` : `GM ${inst.gmNumber}`}, ${esc(cat.label)})</span></dd></div>` +
     `<div><dt>Tonhöhen</dt><dd>${esc(describeMapping(t.mapping))}</dd></div>` +
     (notes ? `<div><dt>Ergebnis</dt><dd>${notes}${res && res.noteCount === 0 && t.enabled ? ' – <strong>spielt nichts</strong>' : ''}</dd></div>` : '') + '</dl>';
 }
@@ -35,17 +36,36 @@ function selectOptions(/** @type {string|number} */ value, options) {
   return options.map((o) => `<option value="${esc(o.value)}"${String(o.value) === String(value) ? ' selected' : ''}>${esc(o.label)}</option>`).join('');
 }
 
-/** Optionsliste der Instrumentauswahl (aktuelles Instrument bleibt immer wählbar). @param {string} category @param {string} query @param {number} selected */
+/**
+ * Optionsliste der Instrumentauswahl: General-MIDI-Programme und ergänzende Klangprofile (Wert „12“ bzw. „s:snare“).
+ * Das aktuelle Instrument bleibt immer wählbar, auch wenn Kategorie/Suche es ausblenden.
+ * @param {string} category @param {string} query @param {{ program:number, sound?:string }} selected
+ */
 export function instrumentOptionsHtml(category, query, selected) {
-  const list = searchInstruments(category, query);
-  const withSel = list.some((i) => i.program === selected) ? list : [getInstrument(selected), ...list];
-  return withSel.map((i) => `<option value="${i.program}"${i.program === selected ? ' selected' : ''}>${i.gmNumber}. ${esc(i.name)}</option>`).join('');
+  const list = searchEntries(category, query);
+  const key = instrumentKey(selected);
+  const cur = resolveInstrument(selected);
+  const withSel = list.some((i) => i.key === key) ? list : [{ key, label: cur.sound ? `${cur.name} (Klangprofil)` : `${cur.gmNumber}. ${cur.name}` }, ...list];
+  return withSel.map((i) => `<option value="${esc(i.key)}"${i.key === key ? ' selected' : ''}>${esc(i.label)}</option>`).join('');
+}
+
+/** Gruppierte Regelauswahl (optgroup je Gruppe). @param {string} selected */
+export function ruleOptionsHtml(selected) {
+  return RULE_GROUPS.map((g) => `<optgroup label="${esc(g.label)}">${RULE_TYPES.filter((r) => r.group === g.id).map((r) => `<option value="${esc(r.id)}"${r.id === selected ? ' selected' : ''}>${esc(r.label)}</option>`).join('')}</optgroup>`).join('');
+}
+
+/** Hinweis zum empfohlenen Standardinstrument einer Sonoritätsklasse. @param {import('../core/tracks.js').TrackConfig} t */
+export function sonorityHint(t) {
+  const d = sonorityDefaults(t.rule.type);
+  if (!d) return '';
+  const same = instrumentKey(t.instrument) === instrumentKey(d.instrument);
+  return `Empfohlenes Standardinstrument: ${d.label}. ${same ? 'Dieses Instrument ist bereits eingestellt.' : 'Dein gewähltes Instrument bleibt unverändert, bis du es übernimmst.'}`;
 }
 
 /** Editor einer Spur. @param {import('../core/tracks.js').TrackConfig} t @param {Record<string,string>} errors Fehler ohne Präfix */
 export function editorHtml(t, errors) {
   const i = t.id;
-  const cat = primaryCategory(t.instrument.program).id;
+  const cat = primaryCategory(t.instrument).id;
   const err = (/** @type {string} */ f) => `<p class="field-error" id="e-${i}-${f}">${errorInner(errors[f] ?? '')}</p>`;
   const inv = (/** @type {string} */ f) => (errors[f] ? ' aria-invalid="true"' : '');
   const mode = t.mapping.mode;
@@ -53,11 +73,14 @@ export function editorHtml(t, errors) {
   return `<div class="track-editor" data-editor="${esc(i)}" role="group" aria-label="Spur bearbeiten: ${esc(t.name)}">
   <div class="field"><label for="${fid(i, 'name')}">Name</label><input id="${fid(i, 'name')}" data-tfield="name" type="text" maxlength="40" value="${esc(t.name)}" aria-describedby="e-${i}-name"${inv('name')}>${err('name')}</div>
   <fieldset><legend>Zeichenregel: Welche Zeichen spielt diese Spur?</legend>
-    <div class="field"><label for="${fid(i, 'ruleType')}">Regel</label><select id="${fid(i, 'ruleType')}" data-tfield="ruleType" aria-describedby="e-${i}-ruleType rule-help-${i}">${selectOptions(rt, RULE_TYPES.map((r) => ({ value: r.id, label: r.label })))}</select>${err('ruleType')}
+    <div class="field"><label for="${fid(i, 'ruleType')}">Regel</label><select id="${fid(i, 'ruleType')}" data-tfield="ruleType" aria-describedby="e-${i}-ruleType rule-help-${i}">${ruleOptionsHtml(rt)}</select>${err('ruleType')}
       <p class="muted small" id="rule-help-${i}">${esc(RULE_TYPES.find((r) => r.id === rt)?.help ?? '')} Satzzeichen und Leerraum sind immer Pausen und nie Teil einer Spur.</p></div>
     <div class="field" data-show="custom"${rt === 'custom' ? '' : ' hidden'}><label for="${fid(i, 'ruleChars')}">Zeichen (z. B. „A, B, C, X“ oder „ABCX“)</label><input id="${fid(i, 'ruleChars')}" data-tfield="ruleChars" type="text" value="${esc(t.rule.chars)}" aria-describedby="e-${i}-ruleChars chars-info-${i}"${inv('ruleChars')}>${err('ruleChars')}
       <p class="muted small" id="chars-info-${i}" aria-live="polite">${esc(customInfo(t))}</p></div>
     <div class="field check" data-show="custom"${rt === 'custom' ? '' : ' hidden'}><input id="${fid(i, 'caseSensitive')}" data-tfield="caseSensitive" type="checkbox"${t.rule.caseSensitive ? ' checked' : ''}><label for="${fid(i, 'caseSensitive')}">Groß-/Kleinschreibung beachten</label></div>
+    <div class="field" data-show="sonority"${isSonorityId(rt) ? '' : ' hidden'}><p class="muted small" id="sonority-hint-${i}" aria-live="polite">${esc(sonorityHint(t))}</p>
+      <button type="button" class="btn btn--wrap" data-tact="apply-default" id="apply-default-${i}">${iconSvg('check')}<span class="btn__label">Standardinstrument und Tonumfang übernehmen</span></button></div>
+    <div class="field check" data-show="sonority"${isSonorityId(rt) ? '' : ' hidden'}><input id="${fid(i, 'germanExt')}" data-tfield="germanExt" type="checkbox"${t.rule.germanExt ? ' checked' : ''}><label for="${fid(i, 'germanExt')}">Deutsche Erweiterung: ä ö → mittlere Vokale, ü → geschlossene Vokale (nicht Teil der Standardliste)</label></div>
     <div class="field check" data-show="vowels consonants"${rt === 'vowels' || rt === 'consonants' ? '' : ' hidden'}><input id="${fid(i, 'yIsVowel')}" data-tfield="yIsVowel" type="checkbox"${t.rule.yIsVowel ? ' checked' : ''}><label for="${fid(i, 'yIsVowel')}">Y zählt als Vokal</label></div>
   </fieldset>
   <fieldset><legend>Tonhöhen dieser Spur</legend>
@@ -74,11 +97,20 @@ export function editorHtml(t, errors) {
       <div class="field"><label for="${fid(i, 'category')}">Kategorie</label><select id="${fid(i, 'category')}" data-tfield="category">${selectOptions(cat, [{ value: 'alle', label: 'Alle Kategorien' }, ...CATEGORIES.map((c) => ({ value: c.id, label: c.label }))])}</select></div>
       <div class="field"><label for="${fid(i, 'search')}">Suchen</label><input id="${fid(i, 'search')}" data-tfield="search" type="search" placeholder="z. B. Cello, Flute, 41" autocomplete="off"></div>
     </div>
-    <div class="field"><label for="${fid(i, 'program')}">Instrument (General MIDI)</label><select id="${fid(i, 'program')}" data-tfield="program" aria-describedby="e-${i}-program">${instrumentOptionsHtml(cat, '', t.instrument.program)}</select>${err('program')}
-      <p class="muted small">Die Vorschau klingt synthetisch (keine Samples); die exportierte MIDI-Datei verwendet dasselbe General-MIDI-Programm auf deinem Wiedergabegerät.</p></div>
+    <div class="field"><label for="${fid(i, 'program')}">Instrument (General MIDI und Klangprofile)</label><select id="${fid(i, 'program')}" data-tfield="program" aria-describedby="e-${i}-program instrument-note-${i}">${instrumentOptionsHtml(cat, '', t.instrument)}</select>${err('program')}
+      <p class="muted small" id="instrument-note-${i}">${esc(instrumentNote(t))}</p></div>
   </fieldset>
   <button type="button" class="btn btn--accent" data-tact="close">${iconSvg('check')}<span class="btn__label">Fertig</span></button>
 </div>`;
+}
+
+/** Erklärung zu Vorschau und Export des gewählten Instruments. @param {import('../core/tracks.js').TrackConfig} t */
+export function instrumentNote(t) {
+  const r = resolveInstrument(t.instrument);
+  const base = 'Die Vorschau klingt synthetisch (keine Samples).';
+  if (r.soundMissing) return `${base} Das Klangprofil „${t.instrument.sound}“ ist unbekannt; es klingt das General-MIDI-Programm ${r.gmNumber} (${r.gmName}).`;
+  if (r.sound) return `${base} ${r.exportNote} Rauschanteile und Hüllkurven der Vorschau sind in der MIDI-Datei nicht enthalten. ${r.sound.description}`;
+  return `${base} Die exportierte MIDI-Datei verwendet dasselbe General-MIDI-Programm auf deinem Wiedergabegerät.`;
 }
 
 /** @param {number} v */
@@ -168,7 +200,11 @@ export function renderRoutingSummary(r) {
       const sample = rt.unassignedSample.map((i) => `„${esc(r.analysis.chars[i].text)}“`).join(' ');
       parts.push(noticeHtml('info', `Nicht zugeordnet${rt.unassigned > rt.unassignedSample.length ? ' (Auswahl)' : ''}: ${sample}`));
     }
-    if (rt.overlaps.length > 0) parts.push(noticeHtml('info', `Überlappung: ${rt.overlaps.map((o) => `${esc(name(o.a))} + ${esc(name(o.b))} (${num(o.chars)} Zeichen)`).join('; ')} – dieselben Zeichen klingen auf beiden Spuren.`));
+    if (rt.overlaps.length > 0) {
+      const isSon = (/** @type {string} */ id) => isSonorityId(r.tracks.find((t) => t.id === id)?.config.rule.type ?? '');
+      const layering = rt.overlaps.some((o) => isSon(o.a) !== isSon(o.b)) ? ' Sonoritätsklassen-Spuren sind untereinander exklusiv; Überlagerung mit allgemeinen Regeln (z. B. „Vokale“) ist beabsichtigtes Layering.' : '';
+      parts.push(noticeHtml('info', `Überlappung: ${rt.overlaps.map((o) => `${esc(name(o.a))} + ${esc(name(o.b))} (${num(o.chars)} Zeichen)`).join('; ')} – dieselben Zeichen klingen auf beiden Spuren.${layering}`));
+    }
   }
   for (const t of active) if (t.noteCount === 0 && rt.noteChars > 0) parts.push(noticeHtml('warn', `Spur „${esc(t.name)}“ spielt in diesem Text nichts (keine passenden Zeichen).`));
   return parts.join('');
@@ -176,12 +212,16 @@ export function renderRoutingSummary(r) {
 
 /** Sichtbarkeit abhängiger Felder im geöffneten Editor aktualisieren. @param {HTMLElement} editor @param {import('../core/tracks.js').TrackConfig} t */
 export function refreshEditorVisibility(editor, t) {
-  const keys = new Set([t.rule.type, t.mapping.mode]);
+  const keys = new Set([t.rule.type, t.mapping.mode, ...(isSonorityId(t.rule.type) ? ['sonority'] : [])]);
   editor.querySelectorAll('[data-show]').forEach((el) => {
     /** @type {HTMLElement} */ (el).hidden = !(el.getAttribute('data-show') ?? '').split(' ').some((k) => keys.has(/** @type {any} */ (k)));
   });
   const help = editor.querySelector(`#rule-help-${t.id}`);
   if (help) help.textContent = `${RULE_TYPES.find((r) => r.id === t.rule.type)?.help ?? ''} Satzzeichen und Leerraum sind immer Pausen und nie Teil einer Spur.`;
+  const sh = editor.querySelector(`#sonority-hint-${t.id}`);
+  if (sh) sh.textContent = sonorityHint(t);
+  const inote = editor.querySelector(`#instrument-note-${t.id}`);
+  if (inote) inote.textContent = instrumentNote(t);
   const info = editor.querySelector(`#chars-info-${t.id}`);
   if (info) info.textContent = customInfo(t);
   for (const k of ['lo', 'hi']) { const n = editor.querySelector(`#n-${t.id}-${k}`); if (n) n.textContent = noteHint(/** @type {any} */ (t.mapping)[k]); }

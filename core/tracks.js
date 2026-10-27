@@ -4,26 +4,40 @@
  * Alle Spuren teilen Text, Bytes, Tokens und die Master-Zeitachse. Eine Spur wählt nur, WELCHE Zeichen sie hörbar macht
  * und mit WELCHEM Mapping deren Byte-Noten klingen. Nicht gespielte Positionen bleiben still (kein Zusammenrücken).
  *
- * @typedef {{ type:'all'|'vowels'|'consonants'|'digits'|'otherLetters'|'symbols'|'emoji'|'custom', chars:string, caseSensitive:boolean, yIsVowel:boolean }} TrackRule
+ * Regeltypen: allgemeine Regeln, die 13 Sonoritätsklassen (IDs `sonority-…`, siehe sonority-classes.js) und „custom“.
+ * `instrument.sound` (optional) ist die ID eines ergänzenden Klangprofils (Vorschau); `program` bleibt das GM-Programm für den MIDI-Export.
+ * @typedef {{ type:string, chars:string, caseSensitive:boolean, yIsVowel:boolean, germanExt?:boolean }} TrackRule
  * @typedef {{ mode:'A'|'A2'|'B', scaleId:string, root:number, lo:number, hi:number }} TrackMapping
- * @typedef {{ id:string, name:string, enabled:boolean, rule:TrackRule, mapping:TrackMapping, instrument:{ program:number } }} TrackConfig
+ * @typedef {{ id:string, name:string, enabled:boolean, rule:TrackRule, mapping:TrackMapping, instrument:{ program:number, sound?:string } }} TrackConfig
  */
 import { classifyChar, segmentGraphemes } from './text.js';
 import { validateMapping } from './mapping.js';
+import { SONORITY_CLASSES, isSonorityId, getSonorityClass, sonorityMask, classifyChars, describeSonorityChars } from './sonority-classes.js';
 
 export const MAX_TRACKS = 20;
 export const MAX_NAME_LENGTH = 40;
 export const MAX_CUSTOM_CHARS = 500;
 
+/** Gruppen der Regelauswahl (Reihenfolge = Anzeige). */
+export const RULE_GROUPS = Object.freeze([
+  { id: 'general', label: 'Allgemeine Regeln' },
+  { id: 'sonority', label: 'Sonoritätsklassen' },
+  { id: 'custom', label: 'Eigene Regeln' },
+]);
+
 export const RULE_TYPES = Object.freeze([
-  { id: 'all', label: 'Alle notenfähigen Zeichen', help: 'Jedes Zeichen, das eine Note erzeugt (Buchstaben, Ziffern, Symbole, Emoji …). Entspricht der bisherigen Einzelspur.' },
-  { id: 'vowels', label: 'Vokale', help: 'A E I O U Ä Ö Ü (auch Kleinbuchstaben, Akzentbuchstaben wie é, å und æ œ ø). Y nur mit der Option unten.' },
-  { id: 'consonants', label: 'Konsonanten', help: 'Lateinische Buchstaben, die nicht zur aktiven Vokalmenge gehören (inkl. ß, Y ohne Option).' },
-  { id: 'digits', label: 'Ziffern', help: 'Dezimalziffern 0–9 (und andere Unicode-Dezimalziffern).' },
-  { id: 'otherLetters', label: 'Weitere Buchstaben', help: 'Buchstaben anderer Schriften (z. B. griechisch, kyrillisch, arabisch, CJK), die nicht lateinisch sind.' },
-  { id: 'symbols', label: 'Symbole', help: 'Symbolzeichen wie + = € $ ♪ (ohne Emoji).' },
-  { id: 'emoji', label: 'Emoji und Piktogramme', help: 'Emoji und Piktogramme (Unicode „Extended Pictographic“).' },
-  { id: 'custom', label: 'Eigene Zeichenmenge', help: 'Zeichen, die du selbst angibst.' },
+  { group: 'general', id: 'all', label: 'Alle notenfähigen Zeichen', help: 'Jedes Zeichen, das eine Note erzeugt (Buchstaben, Ziffern, Symbole, Emoji …). Entspricht der bisherigen Einzelspur.' },
+  { group: 'general', id: 'vowels', label: 'Vokale', help: 'A E I O U Ä Ö Ü (auch Kleinbuchstaben, Akzentbuchstaben wie é, å und æ œ ø). Y nur mit der Option unten.' },
+  { group: 'general', id: 'consonants', label: 'Konsonanten', help: 'Lateinische Buchstaben, die nicht zur aktiven Vokalmenge gehören (inkl. ß, Y ohne Option).' },
+  { group: 'general', id: 'digits', label: 'Ziffern', help: 'Dezimalziffern 0–9 (und andere Unicode-Dezimalziffern).' },
+  { group: 'general', id: 'otherLetters', label: 'Weitere Buchstaben', help: 'Buchstaben anderer Schriften (z. B. griechisch, kyrillisch, arabisch, CJK), die nicht lateinisch sind.' },
+  { group: 'general', id: 'symbols', label: 'Symbole', help: 'Symbolzeichen wie + = € $ ♪ (ohne Emoji).' },
+  { group: 'general', id: 'emoji', label: 'Emoji und Piktogramme', help: 'Emoji und Piktogramme (Unicode „Extended Pictographic“).' },
+  ...SONORITY_CLASSES.map((c) => ({
+    group: 'sonority', id: c.id, label: c.name,
+    help: `Zeichen und Folgen: ${c.chars.join(', ')} (Groß-/Kleinschreibung egal; längste Folge zuerst). Empfohlen: ${c.instrument.label}.`,
+  })),
+  { group: 'custom', id: 'custom', label: 'Eigene Zeichenmenge', help: 'Zeichen, die du selbst angibst.' },
 ]);
 const RULE_IDS = new Set(RULE_TYPES.map((r) => r.id));
 
@@ -102,12 +116,19 @@ export function compileRule(rule, { normalizeNfc }) {
       const set = new Set(parseCustomChars(rule.chars, { normalizeNfc, caseSensitive: cs }).chars.map((g) => caseKey(g, normalizeNfc, cs)));
       return (c) => c.kind === 'normal' && set.has(caseKey(c.text, normalizeNfc, cs));
     }
-    default: return () => false;
+    default: {
+      if (isSonorityId(rule.type)) {
+        // Nur Einzelzeichen-Näherung ohne Kontext; maßgeblich für Spuren ist routeChars (Longest Match First über den ganzen Text).
+        return (c) => c.kind === 'normal' && classifyChars([c], rule.germanExt === true).classOf[0] === rule.type;
+      }
+      return () => false;
+    }
   }
 }
 
 /** Welche Anzeigezeichen trifft die Regel? 1 = ja. Index = SourceChar.index. @param {readonly import('./text.js').SourceChar[]} chars @param {TrackRule} rule @param {{ normalizeNfc:boolean }} opts */
 export function routeChars(chars, rule, opts) {
+  if (isSonorityId(rule.type)) return sonorityMask(chars, rule.type, rule.germanExt === true);
   const test = compileRule(rule, opts);
   const mask = new Uint8Array(chars.length);
   for (let i = 0; i < chars.length; i++) if (test(chars[i])) mask[i] = 1;
@@ -119,6 +140,7 @@ export function ruleKey(r, nfc) {
   const nf = nfc ? 'nfc' : 'raw';
   if (r.type === 'custom') return `custom|${nf}|${r.caseSensitive ? 'cs' : 'ci'}|${r.chars}`;
   if (r.type === 'vowels' || r.type === 'consonants') return `${r.type}|${r.yIsVowel ? 'y' : 'n'}`;
+  if (isSonorityId(r.type)) return `${r.type}|${r.germanExt === true ? 'de' : 'base'}`;
   return r.type;
 }
 
@@ -130,6 +152,7 @@ export function describeRule(r) {
     return `Eigene Menge: ${shown}${chars.length > 12 ? ` … (${chars.length})` : ''}${r.caseSensitive ? ' (Groß-/Kleinschreibung beachtet)' : ''}`;
   }
   const base = ruleLabel(r.type);
+  if (isSonorityId(r.type)) return `${base} (${describeSonorityChars(r.type)}${r.germanExt === true ? '; + ä ö ü' : ''})`;
   return (r.type === 'vowels' || r.type === 'consonants') && r.yIsVowel ? `${base} (Y zählt als Vokal)` : base;
 }
 
@@ -146,9 +169,9 @@ export function normalizeTrack(t, index = 0) {
     id: typeof t.id === 'string' ? t.id : '',
     name: typeof t.name === 'string' ? t.name : `Spur ${index + 1}`,
     enabled: t.enabled !== false,
-    rule: { type: r.type ?? 'all', chars: typeof r.chars === 'string' ? r.chars : '', caseSensitive: r.caseSensitive === true, yIsVowel: r.yIsVowel === true },
+    rule: { type: r.type ?? 'all', chars: typeof r.chars === 'string' ? r.chars : '', caseSensitive: r.caseSensitive === true, yIsVowel: r.yIsVowel === true, ...(r.germanExt === true ? { germanExt: true } : {}) },
     mapping: { mode: m.mode ?? DEFAULT_TRACK_MAPPING.mode, scaleId: m.scaleId ?? DEFAULT_TRACK_MAPPING.scaleId, root: m.root ?? DEFAULT_TRACK_MAPPING.root, lo: m.lo ?? DEFAULT_TRACK_MAPPING.lo, hi: m.hi ?? DEFAULT_TRACK_MAPPING.hi },
-    instrument: { program: t.instrument?.program ?? 0 },
+    instrument: { program: t.instrument?.program ?? 0, ...(typeof t.instrument?.sound === 'string' && t.instrument.sound !== '' ? { sound: t.instrument.sound } : {}) },
   });
 }
 
@@ -178,6 +201,7 @@ export function validateTrack(t, { normalizeNfc = true } = {}) {
   for (const [k, v] of Object.entries(mv.errors)) errors[k] = v;
   warnings.push(...mv.warnings);
   if (!Number.isInteger(t.instrument.program) || t.instrument.program < 0 || t.instrument.program > 127) errors.program = 'Instrument: General-MIDI-Programm 0–127 erwartet.';
+  else if (t.instrument.sound !== undefined && !/^[a-z0-9-]{1,40}$/.test(t.instrument.sound)) errors.program = 'Klangprofil: ungültige Kennung.';
   return { errors, warnings, noteCount: mv.noteCount };
 }
 
@@ -211,6 +235,38 @@ export function vowelConsonantTemplate(tracks) {
   const c = createTrack(tracks, { name: 'Konsonanten', rule: { type: 'consonants', chars: '', caseSensitive: false, yIsVowel: false }, mapping: { mode: 'B', scaleId: 'dur', root: 0, lo: 48, hi: 72 }, instrument: { program: 0 } });
   const v = createTrack([...tracks, c], { name: 'Vokale', rule: { type: 'vowels', chars: '', caseSensitive: false, yIsVowel: false }, mapping: { mode: 'B', scaleId: 'dur', root: 0, lo: 60, hi: 84 }, instrument: { program: 73 } });
   return [c, v];
+}
+
+/**
+ * Vorlage „Sonoritätsklassen-Spuren anlegen“: je Klasse eine Spur mit eigener Regel und Standardinstrument. Bestehende Spuren
+ * bleiben unverändert; eine Klasse, für die es schon eine Spur mit genau dieser Regel gibt (egal ob aktiv, egal welches Instrument),
+ * wird nicht erneut angelegt (wiederholter Aufruf erzeugt keine Duplikate). Reine Funktion, legt nichts selbst an.
+ * @param {readonly TrackConfig[]} tracks
+ * @returns {{ created:TrackConfig[], existing:string[], missing:number, free:number, fits:boolean }}
+ *   `existing`: Namen der Klassen, die es schon gibt; `fits`: false, wenn die fehlenden Spuren das Spurlimit überschreiten (dann wird nichts angelegt).
+ */
+export function sonorityTemplate(tracks) {
+  const have = new Set(tracks.map((t) => t.rule.type));
+  const missingClasses = SONORITY_CLASSES.filter((c) => !have.has(c.id));
+  const existing = SONORITY_CLASSES.filter((c) => have.has(c.id)).map((c) => c.name);
+  const free = Math.max(0, MAX_TRACKS - tracks.length);
+  if (missingClasses.length > free) return { created: [], existing, missing: missingClasses.length, free, fits: false };
+  /** @type {TrackConfig[]} */ const created = [];
+  for (const c of missingClasses) {
+    created.push(createTrack([...tracks, ...created], {
+      name: c.name,
+      rule: { type: c.id, chars: '', caseSensitive: false, yIsVowel: false },
+      mapping: { ...c.mapping },
+      instrument: { program: c.instrument.program, ...(c.instrument.sound ? { sound: c.instrument.sound } : {}) },
+    }));
+  }
+  return { created, existing, missing: missingClasses.length, free, fits: true };
+}
+
+/** Standardinstrument und -tonumfang einer Sonoritätsklasse (oder null für andere Regeln). @param {string} ruleType */
+export function sonorityDefaults(ruleType) {
+  const c = getSonorityClass(ruleType);
+  return c ? { instrument: { program: c.instrument.program, ...(c.instrument.sound ? { sound: c.instrument.sound } : {}) }, mapping: { ...c.mapping }, label: c.instrument.label } : null;
 }
 
 /* ---------- Track-Ereignisse und Routing-Übersicht ---------- */

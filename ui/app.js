@@ -12,17 +12,20 @@ import { noteLabel } from '../core/scales.js';
 import { createPreviewPlayer, DEFAULT_VOLUME } from '../audio/preview.js';
 import { arrangementToMidi, midiFilename, MELODIC_CHANNELS, MidiExportError, MIDI_MIME } from '../export/midi.js';
 import { buildArrangement, countNotes } from '../core/arrangement.js';
-import { createTrack, duplicateTrack, vowelConsonantTemplate } from '../core/tracks.js';
+import { createTrack, duplicateTrack, vowelConsonantTemplate, sonorityTemplate, sonorityDefaults } from '../core/tracks.js';
 import { downloadBlob } from './download.js';
 import { $, esc, num, visibleChar, PAUSE_LABEL, setMessage, setFieldError, noticeHtml, iconSvg } from './dom.js';
-import { hydrateIconSlots } from './icons.js';
+import { hydrateIconSlots, setIcon } from './icons.js';
+import { initTheme } from './theme.js';
+import { instrumentFromKey } from '../audio/instrument-catalog.js';
+import { exportAudio, AudioExportError } from '../export/audio.js';
 import { initSettings, readSettings, writeSettings, showValidation } from './settings-view.js';
 import { renderBinary, renderMapping, renderEvents } from './detail-views.js';
 import { renderPianoRoll, rollPageSize } from './piano-roll.js';
 import { renderTrackList, renderRoutingSummary, trackErrors, refreshEditorVisibility, instrumentOptionsHtml, trackInfoHtml, cardState, statusText } from './tracks-view.js';
 import { applyHighlight, computeLinked, computePreviewLinked, focusFromElement, sameFocus } from './highlighting.js';
 
-const SAMPLE = 'Der Wind trug die Worte über das Meer. Wer hörte zu?\n\n„Niemand!“ – sagte sie … 😀';
+const SAMPLE = 'Zwei flinke Boxer jagen die quirlige Eva und ihren Mops durch Sylt.\nFranz jagt im komplett verwahrlosten Taxi quer durch Bayern.\nZwölf Boxkämpfer jagen Viktor quer über den großen Sylter Deich.\nVogel Quax zwickt Johnys Pferd Bim.\nSylvia wagt quick den Jux bei Pforzheim.\nPolyfon zwitschernd aßen Mäxchens Vögel Rüben, Joghurt und Quark.\n"Fix, Schwyz!" quäkt Jürgen blöd vom Paß.\nVictor jagt zwölf Boxkämpfer quer über den großen Sylter Deich.\nFalsches Üben von Xylophonmusik quält jeden größeren Zwerg.\nHeizölrückstoßabdämpfung.';
 /** Ab dieser Länge wird die Live-Vorschau entprellt, damit Tippen flüssig bleibt. */
 const PREVIEW_IMMEDIATE_CHARS = 5000;
 const PREVIEW_DEBOUNCE_MS = 150;
@@ -30,8 +33,8 @@ const PREVIEW_DEBOUNCE_MS = 150;
 /** @type {{ convertedText:string|null, result:import('../core/pipeline.js').PipelineResult|null, preview:import('../core/pipeline.js').BytePreview|null,
  *   focus:import('./highlighting.js').Focus|null, focusOrigin:'preview'|'results', rows:{binary:number, mapping:number, events:number}, page:number, stale:string,
  *   playingSeq:number, playMessage:string, tracks:import('../core/tracks.js').TrackConfig[], trackUi:Record<string, import('./tracks-view.js').TrackUi>,
- *   editingId:string|null, trackErrors:Record<string,string> }} */
-const state = { convertedText: null, result: null, preview: null, focus: null, focusOrigin: 'results', rows: { binary: LIMITS.initialRows, mapping: LIMITS.initialRows, events: LIMITS.initialRows }, page: 0, stale: '', playingSeq: -1, playMessage: '', tracks: [createTrack([])], trackUi: {}, editingId: null, trackErrors: {} };
+ *   editingId:string|null, trackErrors:Record<string,string>, exporting:boolean }} */
+const state = { convertedText: null, result: null, preview: null, focus: null, focusOrigin: 'results', rows: { binary: LIMITS.initialRows, mapping: LIMITS.initialRows, events: LIMITS.initialRows }, page: 0, stale: '', playingSeq: -1, playMessage: '', tracks: [createTrack([])], trackUi: {}, editingId: null, trackErrors: {}, exporting: false };
 
 const input = /** @type {HTMLTextAreaElement} */ ($('text-input'));
 const convertBtn = /** @type {HTMLButtonElement} */ ($('btn-convert'));
@@ -281,6 +284,7 @@ function updateSyncUi() {
       : stale ? 'Die Vorschau würde den zuletzt umgewandelten Text abspielen, nicht den geänderten.' : 'Klangvorschau mit einfachen synthetischen Instrumentklängen (keine Samples), alle aktiven Spuren gleichzeitig. Pausen bleiben still.';
   }
   $('routing-summary').innerHTML = r ? (stale ? '<p class="muted small">Zuordnung für den zuletzt umgewandelten Text:</p>' : '') + renderRoutingSummary(r) : '';
+  updateAudioExportUi();
 }
 
 function reapply() {
@@ -424,6 +428,106 @@ function exportMidi() {
   }
 }
 
+/* ---------- Audioexport (WAV/ZIP) ---------- */
+const audioModeInputs = /** @type {NodeListOf<HTMLInputElement>} */ (document.querySelectorAll('input[name="audio-mode"]'));
+const audioTrackSelect = /** @type {HTMLSelectElement} */ ($('audio-track'));
+const audioExportBtn = /** @type {HTMLButtonElement} */ ($('btn-audio-export'));
+const audioMode = () => /** @type {import('../export/audio.js').AudioExportMode} */ (Array.from(audioModeInputs).find((i) => i.checked)?.value ?? 'mix');
+
+/** OfflineAudioContext des Browsers (über window, wie die Vorschau). */
+const createOfflineContext = (/** @type {number} */ channels, /** @type {number} */ length, /** @type {number} */ sampleRate) => {
+  const Ctor = window.OfflineAudioContext ?? /** @type {any} */ (window).webkitOfflineAudioContext;
+  if (!Ctor) throw new AudioExportError('Dieser Browser unterstützt das Offline-Rendering (OfflineAudioContext) nicht.');
+  return new Ctor(channels, length, sampleRate);
+};
+
+/** Spuren, die im Export vorkommen können: aktiv und mit mindestens einer Note. */
+function exportableTracks() {
+  const r = state.result;
+  if (!r) return [];
+  return buildArrangement(r).tracks.filter((t) => t.notes.some((n) => n.durationTick > 0));
+}
+
+/** Grund, warum gerade nicht exportiert werden kann (leer = möglich). Nutzt dieselben Zustände wie der MIDI-Export. */
+function audioExportBlocker() {
+  const r = state.result;
+  const mode = audioMode();
+  if (!r) return 'Noch kein Ergebnis: Klicke zuerst auf „Umwandeln“.';
+  if (isStale()) return 'Audioexport gesperrt, bis der geänderte Text erneut umgewandelt wurde.';
+  if (state.stale) return 'Audioexport gesperrt: Die Einstellungen sind ungültig. Bitte die markierten Felder korrigieren.';
+  const arr = buildArrangement(r);
+  if (arr.tracks.length === 0) return 'Audioexport nicht möglich: Es gibt keine aktive Spur.';
+  const tracks = exportableTracks();
+  if (tracks.length === 0) return 'Audioexport nicht möglich: Die aktiven Spuren spielen keine Noten.';
+  if (mode === 'mix') {
+    const st = trackStates();
+    if (!tracks.some((t) => st[t.id]?.audible !== false)) return 'Audioexport nicht möglich: Alle Spuren mit Noten sind stummgeschaltet oder durch Solo ausgeblendet.';
+  }
+  if (mode === 'track' && !tracks.some((t) => t.id === audioTrackSelect.value)) return 'Bitte eine Spur auswählen.';
+  return '';
+}
+
+/** Spurauswahl, Sichtbarkeit, Button- und Hinweiszustand aktualisieren (Auswahl und Fokus bleiben erhalten). */
+function updateAudioExportUi() {
+  const mode = audioMode();
+  $('audio-track-field').hidden = mode !== 'track';
+  const tracks = exportableTracks();
+  const opts = tracks.map((t) => ({ id: t.id, label: `S${state.tracks.findIndex((x) => x.id === t.id) + 1} ${t.name}` }));
+  const sig = JSON.stringify(opts);
+  if (audioTrackSelect.dataset.sig !== sig) {
+    const keep = audioTrackSelect.value;
+    audioTrackSelect.innerHTML = opts.map((o) => `<option value="${esc(o.id)}">${esc(o.label)}</option>`).join('');
+    audioTrackSelect.dataset.sig = sig;
+    if (opts.some((o) => o.id === keep)) audioTrackSelect.value = keep;
+  }
+  const blocker = audioExportBlocker();
+  audioExportBtn.disabled = state.exporting || blocker !== '';
+  $('audio-export-hint').textContent = blocker;
+  $('audio-export').setAttribute('aria-busy', String(state.exporting));
+  $('audio-export-label').textContent = state.exporting ? 'Wird erstellt …' : mode === 'zip' ? 'ZIP mit WAV-Dateien erstellen' : 'WAV-Datei erstellen';
+  setIcon(audioExportBtn.querySelector('svg'), state.exporting ? 'loader-circle' : 'download', state.exporting ? 'ui-icon--spin' : '');
+  audioModeInputs.forEach((i) => { i.disabled = state.exporting; });
+  audioTrackSelect.disabled = state.exporting;
+}
+
+async function runAudioExport() {
+  if (state.exporting) return;
+  const r = state.result;
+  if (!r || audioExportBlocker() !== '') { updateAudioExportUi(); return; }
+  const status = $('audio-export-status');
+  const mode = audioMode();
+  const arr = buildArrangement(r); // Momentaufnahme: der Export gehört zum zuletzt umgewandelten Text
+  const text = state.convertedText ?? '';
+  state.exporting = true;
+  updateAudioExportUi();
+  setMessage(status, 'info', 'Audio wird erzeugt …');
+  announce('Audioexport gestartet.');
+  try {
+    const res = await exportAudio(arr, {
+      mode, trackId: audioTrackSelect.value, trackStates: trackStates(), text, createOfflineContext,
+      onProgress: (done, total) => { if (mode === 'zip' && done < total) setMessage(status, 'info', `Audio wird erzeugt … Spur ${done + 1} von ${total}`); },
+    });
+    downloadBlob(new Blob([/** @type {BlobPart} */ (res.data)], { type: res.mime }), res.filename);
+    const i = res.info;
+    const msg = `Audio exportiert: ${res.filename} (${i.files} WAV-Datei${i.files === 1 ? '' : 'en'}, je ${i.seconds.toLocaleString('de-DE', { maximumFractionDigits: 1 })} s)` +
+      `${i.skipped ? `; ${i.skipped} Spur${i.skipped === 1 ? '' : 'en'} ohne Noten übersprungen` : ''}${i.attenuated ? '; wegen Übersteuerung leiser ausgesteuert' : ''}.`;
+    setMessage(status, 'ok', msg);
+    announce(msg);
+  } catch (err) {
+    console.error(err);
+    const msg = err instanceof AudioExportError ? err.message : 'Der Audioexport ist fehlgeschlagen. Bitte erneut versuchen oder weniger Spuren bzw. einen kürzeren Text exportieren.';
+    setMessage(status, 'error', msg);
+    announce(msg);
+  } finally {
+    state.exporting = false;
+    updateAudioExportUi();
+  }
+}
+
+audioModeInputs.forEach((i) => i.addEventListener('change', () => { setMessage($('audio-export-status'), 'info', ''); updateAudioExportUi(); }));
+audioTrackSelect.addEventListener('change', updateAudioExportUi);
+audioExportBtn.addEventListener('click', () => { void runAudioExport(); });
+
 /* ---------- Spuren ---------- */
 const tracksList = $('tracks-list');
 /** Wert für Attributselektoren absichern (IDs sind „track-N“, trotzdem robust). @param {string} v */
@@ -456,6 +560,7 @@ function updateTrackCards() {
     card.querySelector('[data-tact=solo]')?.setAttribute('aria-pressed', String(u.solo));
   }
   $('routing-summary').innerHTML = state.result ? (isStale() ? '<p class="muted small">Zuordnung für den zuletzt umgewandelten Text:</p>' : '') + renderRoutingSummary(state.result) : '';
+  updateAudioExportUi();
 }
 
 /** Fehler an den Feldern des geöffneten Editors anzeigen. */
@@ -489,7 +594,7 @@ function onTrackField(el) {
   if (field === 'category' || field === 'search') {
     const cat = /** @type {HTMLSelectElement} */ (editor.querySelector('[data-tfield=category]')).value;
     const q = /** @type {HTMLInputElement} */ (editor.querySelector('[data-tfield=search]')).value;
-    const cur = state.tracks.find((t) => t.id === id)?.instrument.program ?? 0;
+    const cur = state.tracks.find((t) => t.id === id)?.instrument ?? { program: 0 };
     /** @type {HTMLSelectElement} */ (editor.querySelector('[data-tfield=program]')).innerHTML = instrumentOptionsHtml(cat, q, cur);
     return;
   }
@@ -505,7 +610,8 @@ function onTrackField(el) {
       case 'root': return { ...t, mapping: { ...t.mapping, root: Number(v) } };
       case 'lo': return { ...t, mapping: { ...t.mapping, lo: num_ } };
       case 'hi': return { ...t, mapping: { ...t.mapping, hi: num_ } };
-      case 'program': return { ...t, instrument: { program: Number(v) } };
+      case 'germanExt': { const { germanExt: _g, ...rest } = t.rule; return { ...t, rule: /** @type {HTMLInputElement} */ (el).checked ? { ...rest, germanExt: true } : rest }; }
+      case 'program': return { ...t, instrument: instrumentFromKey(v) };
       default: return t;
     }
   });
@@ -540,6 +646,15 @@ function onTrackAction(btn) {
       const target = /** @type {HTMLElement|null} */ (tracksList.querySelector(state.editingId ? `[data-editor="${q(id)}"] [data-tfield=name]` : `[data-track="${q(id)}"] [data-tact=edit]`));
       (target ?? $('btn-add-track')).focus();
       break;
+    case 'apply-default': {
+      const d = sonorityDefaults(t.rule.type);
+      if (!d) break;
+      updateTrack(id, (x) => ({ ...x, instrument: { ...d.instrument }, mapping: { ...x.mapping, ...d.mapping } }));
+      renderTracks(); onSettingsChange(); showTrackErrors();
+      /** @type {HTMLElement|null} */ (tracksList.querySelector(`[data-editor="${q(id)}"] [data-tact=apply-default]`))?.focus();
+      announce(`Standardinstrument ${d.label} und Tonumfang für ${t.name} übernommen.`);
+      break;
+    }
     case 'duplicate': {
       const copy = duplicateTrack(state.tracks, id);
       if (!copy) break;
@@ -602,6 +717,21 @@ $('btn-add-track').addEventListener('click', () => {
   renderTracks(); onSettingsChange(); showTrackErrors();
   /** @type {HTMLElement|null} */ (tracksList.querySelector(`[data-editor="${q(t.id)}"] [data-tfield=name]`))?.focus();
   announce(`Spur ${t.name} hinzugefügt.`);
+});
+$('btn-add-sonority').addEventListener('click', () => {
+  const r = sonorityTemplate(state.tracks);
+  const status = $('tracks-status');
+  const have = r.existing.length > 0 ? ` Schon vorhanden (nicht erneut angelegt): ${r.existing.join(', ')}.` : '';
+  if (!r.fits) {
+    const msg = `Es fehlen ${r.missing} Sonoritätsklassen-Spuren, aber nur ${r.free} Plätze sind frei (Höchstens 20 Spuren). Es wurde nichts angelegt – lösche oder deaktiviere vorher andere Spuren.${have}`;
+    setMessage(status, 'warn', msg); announce(msg); return;
+  }
+  if (r.created.length === 0) { const msg = 'Alle 13 Sonoritätsklassen sind bereits als Spuren vorhanden. Es wurde nichts angelegt.'; setMessage(status, 'info', msg); announce(msg); return; }
+  state.tracks = [...state.tracks, ...r.created];
+  state.editingId = null;
+  renderTracks(); onSettingsChange();
+  const msg = `${r.created.length} Sonoritätsklassen-Spuren angelegt.${have} Instrument, Tonleiter, Grundton und Tonumfang kannst du je Spur ändern.`;
+  setMessage(status, 'ok', msg); announce(msg);
 });
 $('btn-add-vc').addEventListener('click', () => {
   if (state.tracks.length + 2 > 20) { announce('Höchstens 20 Spuren.'); return; }
@@ -672,6 +802,7 @@ bindInteractions(results, 'results');
 bindInteractions(previewEl, 'preview');
 
 hydrateIconSlots(document);
+initTheme(/** @type {HTMLButtonElement} */ ($('btn-theme')), { onChange: (t) => announce(t === 'dark' ? 'Dunkles Design aktiv.' : 'Helles Design aktiv.') });
 initSettings();
 renderTracks();
 updateInputState();

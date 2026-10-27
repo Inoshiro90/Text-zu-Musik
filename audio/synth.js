@@ -7,7 +7,11 @@
  * @typedef {{ type:OscillatorType, ratio?:number, gain:number, detune?:number }} Partial
  * @typedef {{ osc:readonly Partial[], a:number, d:number, s:number, r:number, peak?:number,
  *   filter?:{ type:BiquadFilterType, freq:number, q?:number, sweepTo?:number, sweepTime?:number },
- *   vibrato?:{ rate:number, cents:number, delay:number }, tremolo?:undefined }} Profile
+ *   vibrato?:{ rate:number, cents:number, delay:number }, tremolo?:undefined,
+ *   noise?:{ gain:number, filter:{ type:BiquadFilterType, freq:number, q?:number }, decay?:number },
+ *   pitchDrop?:{ ratio:number, time:number } }} Profile
+ * `noise`: deterministisches Rauschen (eigener Filter, optional kurzer Abfall `decay`), mischt sich in die Hüllkurve der Stimme.
+ * `pitchDrop`: Die tonalen Anteile starten `ratio`-mal höher und fallen innerhalb `time` s auf die Zielfrequenz (Trommel-Anschlag).
  */
 
 /** @type {Readonly<Record<string, Profile>>} */
@@ -43,6 +47,14 @@ export const PROFILES = Object.freeze({
   pad: { osc: [{ type: 'sawtooth', gain: 0.3, detune: -12 }, { type: 'sawtooth', gain: 0.3 }, { type: 'sawtooth', gain: 0.3, detune: 12 }], a: 0.35, d: 0.2, s: 0.9, r: 0.3, peak: 0.6, filter: { type: 'lowpass', freq: 1800, q: 0.5 } },
   choir: { osc: [{ type: 'triangle', gain: 0.6 }, { type: 'sine', ratio: 2, gain: 0.25 }], a: 0.15, d: 0.1, s: 0.85, r: 0.15, filter: { type: 'bandpass', freq: 1100, q: 0.9 }, vibrato: { rate: 5, cents: 10, delay: 0.1 } },
   sitar: { osc: [{ type: 'sawtooth', gain: 0.5 }, { type: 'sawtooth', ratio: 1.005, gain: 0.35 }], a: 0.003, d: 0.6, s: 0.1, r: 0.05, filter: { type: 'bandpass', freq: 2200, q: 3 } },
+  woodblock: { osc: [{ type: 'sine', gain: 1 }, { type: 'sine', ratio: 2.8, gain: 0.35 }], a: 0.001, d: 0.07, s: 0, r: 0.01, peak: 0.85, noise: { gain: 0.12, filter: { type: 'highpass', freq: 2500 }, decay: 0.01 } },
+  tom: { osc: [{ type: 'sine', gain: 1 }, { type: 'triangle', ratio: 0.5, gain: 0.4 }], a: 0.002, d: 0.4, s: 0, r: 0.05, pitchDrop: { ratio: 1.7, time: 0.09 }, noise: { gain: 0.1, filter: { type: 'lowpass', freq: 900 }, decay: 0.03 } },
+  snare: { osc: [{ type: 'triangle', gain: 0.6 }], a: 0.001, d: 0.15, s: 0, r: 0.02, pitchDrop: { ratio: 1.4, time: 0.05 }, noise: { gain: 0.9, filter: { type: 'highpass', freq: 1500, q: 0.6 }, decay: 0.13 } },
+  'hybrid-perc': { osc: [{ type: 'sine', gain: 1 }, { type: 'sawtooth', gain: 0.22 }], a: 0.001, d: 0.22, s: 0, r: 0.03, pitchDrop: { ratio: 2, time: 0.06 }, noise: { gain: 0.35, filter: { type: 'bandpass', freq: 3000, q: 1 }, decay: 0.05 } },
+  hihat: { osc: [{ type: 'square', ratio: 2, gain: 0.1 }, { type: 'square', ratio: 3, gain: 0.1 }, { type: 'square', ratio: 4.16, gain: 0.1 }], a: 0.001, d: 0.07, s: 0, r: 0.012, filter: { type: 'highpass', freq: 6000, q: 0.7 }, noise: { gain: 0.6, filter: { type: 'highpass', freq: 7000 }, decay: 0.06 } },
+  noisesaw: { osc: [{ type: 'sawtooth', gain: 0.6 }, { type: 'sawtooth', gain: 0.3, detune: 8 }], a: 0.01, d: 0.1, s: 0.75, r: 0.05, filter: { type: 'lowpass', freq: 3200, q: 1.5 }, noise: { gain: 0.25, filter: { type: 'bandpass', freq: 2500, q: 0.8 } } },
+  'violin-soft': { osc: [{ type: 'sawtooth', gain: 0.4, detune: -6 }, { type: 'sawtooth', gain: 0.4, detune: 6 }], a: 0.14, d: 0.1, s: 0.85, r: 0.12, filter: { type: 'lowpass', freq: 2600, q: 0.5 }, vibrato: { rate: 5.5, cents: 7, delay: 0.2 } },
+  'horn-warm': { osc: [{ type: 'sawtooth', gain: 0.45 }, { type: 'sine', gain: 0.55 }], a: 0.12, d: 0.12, s: 0.8, r: 0.14, filter: { type: 'lowpass', freq: 1000, q: 0.6 } },
   fx: { osc: [{ type: 'sine', gain: 0.6 }, { type: 'sawtooth', ratio: 1.5, gain: 0.2, detune: 15 }], a: 0.2, d: 0.2, s: 0.7, r: 0.2, filter: { type: 'lowpass', freq: 1400, q: 3 }, vibrato: { rate: 7, cents: 25, delay: 0 } },
 });
 
@@ -51,6 +63,23 @@ export const getProfile = (id) => PROFILES[id] ?? PROFILES.sine;
 
 /** Alle Profil-IDs, die der Katalog verwendet, müssen existieren (Test). */
 export const PROFILE_IDS = Object.freeze(Object.keys(PROFILES));
+
+/** @type {WeakMap<object, any>} */
+const NOISE_BUFFERS = new WeakMap();
+
+/** Eine Sekunde weißes Rauschen, deterministisch (feste Startzahl) → reproduzierbarer Export. @param {any} ctx */
+function noiseBuffer(ctx) {
+  let b = NOISE_BUFFERS.get(ctx);
+  if (!b) {
+    const rate = ctx.sampleRate || 44100;
+    b = ctx.createBuffer(1, rate, rate);
+    const d = b.getChannelData(0);
+    let x = 123456789;
+    for (let i = 0; i < d.length; i++) { x = (Math.imul(x, 1664525) + 1013904223) >>> 0; d[i] = (x / 2147483648) - 1; }
+    NOISE_BUFFERS.set(ctx, b);
+  }
+  return b;
+}
 
 /**
  * Plant EINE Note mit dem Profil auf dem AudioContext. Die Note ist spätestens bei `end` still (Hüllkurve endet bei 0,
@@ -113,7 +142,12 @@ export function scheduleVoice(ctx, destination, profile, note) {
   for (const p of partials) {
     const osc = ctx.createOscillator();
     osc.type = p.type;
-    osc.frequency.value = note.frequency * (p.ratio ?? 1);
+    const target = note.frequency * (p.ratio ?? 1);
+    osc.frequency.value = target;
+    if (profile.pitchDrop && osc.frequency.setValueAtTime && osc.frequency.exponentialRampToValueAtTime) {
+      osc.frequency.setValueAtTime(target * profile.pitchDrop.ratio, s);
+      osc.frequency.exponentialRampToValueAtTime(target, s + Math.min(profile.pitchDrop.time, dur));
+    }
     if (p.detune && osc.detune) osc.detune.value = p.detune;
     if (lfoGain && osc.detune) lfoGain.connect(osc.detune);
     if (single) { osc.connect(sink); nodes.push({ osc, gain: null }); } else {
@@ -125,6 +159,24 @@ export function scheduleVoice(ctx, destination, profile, note) {
     }
     osc.start(s);
     osc.stop(e);
+  }
+  if (profile.noise && typeof ctx.createBuffer === 'function' && typeof ctx.createBufferSource === 'function') {
+    const src = ctx.createBufferSource();
+    src.buffer = noiseBuffer(ctx);
+    src.loop = true;
+    const nf = ctx.createBiquadFilter();
+    nf.type = profile.noise.filter.type;
+    nf.frequency.value = profile.noise.filter.freq;
+    nf.Q.value = profile.noise.filter.q ?? 0.7;
+    const ng = ctx.createGain();
+    ng.gain.setValueAtTime(profile.noise.gain, s);
+    if (profile.noise.decay) ng.gain.linearRampToValueAtTime(0.0001, Math.min(e, s + profile.noise.decay));
+    src.connect(nf);
+    nf.connect(ng);
+    ng.connect(env);
+    src.start(s, (note.frequency % 0.9));
+    src.stop(e);
+    nodes.push({ osc: src, gain: ng });
   }
   return nodes;
 }

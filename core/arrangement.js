@@ -5,7 +5,7 @@
  * gemeinsame Gesamtlänge. Pausen sind nur als Lücken enthalten. Mute/Solo gehören NICHT hierher (reine Hörkontrolle der Vorschau).
  *
  * @typedef {{ seq:number, startTick:number, durationTick:number, midi:number, velocity:number }} ArrNote
- * @typedef {{ id:string, name:string, program:number, notes:readonly ArrNote[] }} ArrTrack
+ * @typedef {{ id:string, name:string, program:number, sound?:string, notes:readonly ArrNote[] }} ArrTrack
  * @typedef {{ ppq:number, tempoBpm:number, totalTicks:number, events:readonly import('./timeline.js').MasterEvent[], tracks:readonly ArrTrack[] }} Arrangement
  */
 
@@ -23,6 +23,7 @@ export function buildArrangement(result) {
       id: t.id,
       name: t.name,
       program: t.instrument.program,
+      ...(t.instrument.sound ? { sound: t.instrument.sound } : {}),
       notes: t.events,
     }))),
   });

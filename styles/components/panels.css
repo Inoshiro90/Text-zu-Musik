@@ -61,6 +61,8 @@ details.help > p { margin-top: var(--space-2); padding: var(--space-3); backgrou
 .notice,
 .sync-status,
 .preview-status,
+.audio-export__status,
+.tracks-status,
 .warnings li {
   --msg-accent: var(--status-info);
   --msg-bg: var(--status-info-bg);
@@ -84,7 +86,7 @@ details.help > p { margin-top: var(--space-2); padding: var(--space-3); backgrou
 .msg__text { flex: 1; min-width: 0; }
 .msg__label { font-weight: var(--fw-bold); }
 
-.hint:empty, .sync-status:empty, .preview-status:empty, .warnings:empty { display: none; }
+.hint:empty, .sync-status:empty, .preview-status:empty, .audio-export__status:empty, .tracks-status:empty, .warnings:empty { display: none; }
 .warnings { display: grid; gap: var(--space-2); }
 .notices { display: grid; gap: var(--space-2); }
 .notices:empty { display: none; }
@@ -96,10 +98,21 @@ code.inline { white-space: pre-wrap; word-break: break-word; }
 #results.stale #roll-wrap,
 #results.stale #events-wrap { border-left: 3px dashed var(--status-warn); padding-left: var(--space-3); }
 
+/* ─── Audioexport ─── */
+.audio-export { display: grid; gap: var(--space-3); padding: var(--space-3); background: var(--bg-warm); border-radius: var(--radius-md); }
+.audio-export > h3 { font-size: var(--text-h5); letter-spacing: -0.2px; }
+.export-modes { display: grid; gap: var(--space-1); }
+.export-modes .check { align-items: flex-start; }
+.export-modes .check > input { margin-top: calc((var(--h-btn) - 1.25rem) / 2); }
+.export-modes .check > label { display: block; padding-block: calc((var(--h-btn) - 1.5em) / 2); }
+.audio-export__btn { width: 100%; }
+.audio-export .btn .ui-icon.ui-icon--spin { transform-origin: center; }
+
 /* ─── Eingabebereich ─── */
 .counter { font-family: var(--font-mono); font-size: var(--text-badge); color: var(--text-secondary); }
 .actions { display: grid; gap: var(--space-2); }
 .settings-form { display: grid; gap: var(--space-4); }
+.settings-form > .settings-group { min-width: 0; }
 .settings-group { display: grid; gap: var(--space-2); padding: var(--space-3); background: var(--bg-warm); border-radius: var(--radius-sm); }
 
 /* ─── Transportsteuerung (Wiedergabe · Stopp · Gesamtlautstärke · Export) ─── */
@@ -132,9 +145,14 @@ code.inline { white-space: pre-wrap; word-break: break-word; }
 .play-status { min-height: 1.5em; font-size: var(--text-caption); }
 
 @media (min-width: 30em) {
+  .audio-export__btn { width: auto; justify-self: start; }
   .actions { grid-template-columns: auto auto; justify-content: start; }
 }
 @media (min-width: 48em) {
+  /* Einstellungen: Dauern und Tempo/Verarbeitung nebeneinander, Hinweise und Zurücksetzen über die volle Breite */
+  .settings-form { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: var(--space-4); align-items: start; }
+  .settings-form > p, .settings-form > .warnings, .settings-form > .btn { grid-column: 1 / -1; }
+  .settings-form > .btn { justify-self: start; }
   .panel { padding: var(--space-5); }
   .panel > h2 { margin-bottom: var(--space-4); }
   details.panel[open] > summary { margin-bottom: var(--space-3); }

@@ -132,6 +132,7 @@
 
   /* ─── Bedienelemente ─── */
   --h-btn: 2.75rem;                              /* 44px Touch-Ziel */
+  --h-navbar: 3.5rem;
 
   /* ─── Animation (Soundboard) ─── */
   --dur-fast: 100ms;

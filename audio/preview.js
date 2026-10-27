@@ -10,7 +10,7 @@
 
 /** @typedef {import('../core/timeline.js').Sequence} Sequence */
 /** @typedef {import('../core/arrangement.js').Arrangement} Arrangement */
-import { getInstrument } from './instrument-catalog.js';
+import { resolveInstrument } from './instrument-catalog.js';
 import { getProfile, PROFILES, scheduleVoice } from './synth.js';
 /** @typedef {{ seq:number, midi:number, frequency:number, startSeconds:number, durationSeconds:number, endSeconds:number, velocity?:number, trackIndex?:number }} PlannedNote */
 
@@ -97,7 +97,7 @@ function normalizeSpec(spec) {
   assertSequence(/** @type {Sequence} */ (spec));
   const arr = /** @type {Arrangement} */ (spec);
   if (Array.isArray(arr.tracks)) {
-    return { ppq: arr.ppq, tempoBpm: arr.tempoBpm, totalTicks: arr.totalTicks, events: arr.events, tracks: arr.tracks.map((t) => ({ id: t.id, profile: getProfile(getInstrument(t.program).profile), notes: t.notes })) };
+    return { ppq: arr.ppq, tempoBpm: arr.tempoBpm, totalTicks: arr.totalTicks, events: arr.events, tracks: arr.tracks.map((t) => ({ id: t.id, profile: getProfile(resolveInstrument(t).profile), notes: t.notes })) };
   }
   const seq = /** @type {Sequence} */ (spec);
   return { ppq: seq.ppq, tempoBpm: seq.tempoBpm, totalTicks: seq.totalTicks, events: seq.events, tracks: [{ id: 'legacy', profile: PROFILES.sine, notes: seq.events.filter((e) => e.type === 'note') }] };

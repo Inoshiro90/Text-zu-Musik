@@ -31,6 +31,9 @@
     border-color var(--dur-base) var(--ease),
     transform var(--dur-fast) var(--ease);
 }
+
+/* Lange Beschriftung darf umbrechen (schmale Viewports), statt die Seite zu verbreitern */
+.btn--wrap { height: auto; min-height: var(--h-btn); padding-block: var(--space-2); white-space: normal; text-align: left; max-width: 100%; }
 .btn .ui-icon { width: 1.35em; height: 1.35em; vertical-align: 0; }
 
 .btn:hover:not(:disabled) {
