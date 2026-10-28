@@ -21,7 +21,7 @@ export const START_DELAY_SECONDS = 0.08;
 export const MASTER_PEAK = 0.5;
 export const DEFAULT_VOLUME = 0.4;
 
-/** @param {number} midi */
+/** Frequenz in Hz; `midi` darf gebrochen sein (Mikrotöne: midi + cents/100). @param {number} midi */
 export function midiToFrequency(midi) {
   return 440 * 2 ** ((midi - 69) / 12);
 }
@@ -55,7 +55,7 @@ export function planNotes(sequence) {
     if (e.type !== 'note' || !(e.durationTick > 0)) continue;
     const startSeconds = ticksToSeconds(e.startTick, sequence.ppq, sequence.tempoBpm);
     const durationSeconds = ticksToSeconds(e.durationTick, sequence.ppq, sequence.tempoBpm);
-    out.push({ seq: e.seq, midi: e.midi, frequency: midiToFrequency(e.midi), startSeconds, durationSeconds, endSeconds: startSeconds + durationSeconds });
+    out.push({ seq: e.seq, midi: e.midi, frequency: midiToFrequency(e.midi + (/** @type {any} */ (e).cents ?? 0) / 100), startSeconds, durationSeconds, endSeconds: startSeconds + durationSeconds });
   }
   return out;
 }
@@ -207,7 +207,7 @@ export function createPreviewPlayer(options) {
           if (!(e.durationTick > 0)) continue;
           const startSeconds = ticksToSeconds(e.startTick, spec.ppq, spec.tempoBpm);
           const durationSeconds = ticksToSeconds(e.durationTick, spec.ppq, spec.tempoBpm);
-          notes.push({ seq: e.seq, midi: e.midi, frequency: midiToFrequency(e.midi), startSeconds, durationSeconds, endSeconds: startSeconds + durationSeconds, velocity: e.velocity, trackIndex });
+          notes.push({ seq: e.seq, midi: e.midi, frequency: midiToFrequency(e.midi + (e.cents ?? 0) / 100), startSeconds, durationSeconds, endSeconds: startSeconds + durationSeconds, velocity: e.velocity, trackIndex });
         }
       });
       notes.sort((a, b) => a.startSeconds - b.startSeconds || /** @type {number} */ (a.trackIndex) - /** @type {number} */ (b.trackIndex) || a.seq - b.seq);

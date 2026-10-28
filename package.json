@@ -7,7 +7,9 @@
   "scripts": {
     "start": "node scripts/serve.mjs",
     "test": "node --test",
-    "bench": "node scripts/bench.mjs"
+    "bench": "node scripts/bench.mjs",
+    "golden": "node scripts/golden.mjs",
+    "report": "node scripts/library-report.mjs"
   },
   "engines": {
     "node": ">=20"

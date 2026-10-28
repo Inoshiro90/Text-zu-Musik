@@ -3,10 +3,11 @@
  * Stufe 4b: Token + Mapping → Ereignisse mit ganzzahligen Ticks (sequenziell, ohne Lücken/Überlappung).
  * @typedef {{ type:'note', seq:number, startTick:number, durationTick:number, midi:number, name:string, velocity:number,
  *   source:{ charIndex:number, byteIndex:number, posInChar:number, byteValue:number, bits:string },
- *   explain:import('./mapping.js').Explain, trackId?:string }} NoteEvent
+ *   explain:import('./mapping.js').Explain, trackId?:string, cents?:number }} NoteEvent
+ *   cents: Abweichung von der MIDI-Taste in Cent (nur vorhanden, wenn ≠ 0; Phase E).
  * @typedef {{ type:'rest', seq:number, startTick:number, durationTick:number, pauseKind:'word'|'sentence'|'paragraph'|'clause',
  *   source:{ charIndexes:readonly number[], byteIndexes:readonly number[] } }} PauseEvent
- * @typedef {Omit<NoteEvent,'midi'|'name'|'explain'|'trackId'>} MasterNote
+ * @typedef {Omit<NoteEvent,'midi'|'name'|'explain'|'trackId'|'cents'>} MasterNote
  * @typedef {MasterNote|PauseEvent} MasterEvent
  * @typedef {NoteEvent|PauseEvent} MusicEvent
  * @typedef {{ ppq:480, tempoBpm:number, events:readonly MusicEvent[], totalTicks:number }} Sequence
@@ -57,7 +58,7 @@ export function withPitch(events, table) {
   return Object.freeze(events.map((e) => {
     if (e.type !== 'note') return e;
     const m = table[e.source.byteValue];
-    return Object.freeze({ ...e, midi: m.midi, name: m.name, explain: m.explain });
+    return Object.freeze({ ...e, midi: m.midi, name: m.name, explain: m.explain, ...(m.cents ? { cents: m.cents } : {}) });
   }));
 }
 

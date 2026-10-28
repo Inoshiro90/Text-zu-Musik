@@ -8,7 +8,7 @@
 import { runPipeline, runPreview } from '../core/pipeline.js';
 import { DEFAULT_CONFIG, LIMITS, validateConfig } from '../core/config.js';
 import { countCodePoints } from '../core/text.js';
-import { noteLabel } from '../core/scales.js';
+import { pitchLabel } from '../core/scales.js';
 import { createPreviewPlayer, DEFAULT_VOLUME } from '../audio/preview.js';
 import { arrangementToMidi, midiFilename, MELODIC_CHANNELS, MidiExportError, MIDI_MIME } from '../export/midi.js';
 import { buildArrangement, countNotes } from '../core/arrangement.js';
@@ -22,7 +22,10 @@ import { exportAudio, AudioExportError } from '../export/audio.js';
 import { initSettings, readSettings, writeSettings, showValidation } from './settings-view.js';
 import { renderBinary, renderMapping, renderEvents } from './detail-views.js';
 import { renderPianoRoll, rollPageSize } from './piano-roll.js';
-import { renderTrackList, renderRoutingSummary, trackErrors, refreshEditorVisibility, instrumentOptionsHtml, trackInfoHtml, cardState, statusText } from './tracks-view.js';
+import { renderTrackList, renderRoutingSummary, trackErrors, refreshEditorVisibility, instrumentOptionsHtml, scaleOptionsHtml, scaleCountText, trackInfoHtml, cardState, statusText, setRecentScales, getRecentScales, pushRecent } from './tracks-view.js';
+import { getTonalSystem, registerUserSystem } from '../core/tonal/library.js';
+import { toScala, scalaFilename, parseScala, scalaToSystem } from '../core/tonal/scala.js';
+import { buildScaleAudition } from '../core/tonal/audition.js';
 import { applyHighlight, computeLinked, computePreviewLinked, focusFromElement, sameFocus } from './highlighting.js';
 
 const SAMPLE = 'Zwei flinke Boxer jagen die quirlige Eva und ihren Mops durch Sylt.\nFranz jagt im komplett verwahrlosten Taxi quer durch Bayern.\nZwölf Boxkämpfer jagen Viktor quer über den großen Sylter Deich.\nVogel Quax zwickt Johnys Pferd Bim.\nSylvia wagt quick den Jux bei Pforzheim.\nPolyfon zwitschernd aßen Mäxchens Vögel Rüben, Joghurt und Quark.\n"Fix, Schwyz!" quäkt Jürgen blöd vom Paß.\nVictor jagt zwölf Boxkämpfer quer über den großen Sylter Deich.\nFalsches Üben von Xylophonmusik quält jeden größeren Zwerg.\nHeizölrückstoßabdämpfung.';
@@ -309,7 +312,7 @@ function reapply() {
 function eventLabel(r, seq) {
   const e = r.master.events[seq];
   if (e.type === 'rest') return PAUSE_LABEL[e.pauseKind];
-  const by = r.tracks.flatMap((t, i) => (t.enabled && t.bySeq[seq] ? [`S${i + 1} ${noteLabel(/** @type {any} */ (t.bySeq[seq]).midi)}`] : []));
+  const by = r.tracks.flatMap((t, i) => (t.enabled && t.bySeq[seq] ? [`S${i + 1} ${pitchLabel(/** @type {any} */ (t.bySeq[seq]).midi, /** @type {any} */ (t.bySeq[seq]).cents)}`] : []));
   return by.length ? `Note ${by.join(', ')}` : 'Note ohne Spur (still)';
 }
 
@@ -570,7 +573,7 @@ function showTrackErrors() {
   const errs = trackErrors(state.trackErrors, id);
   const editor = tracksList.querySelector(`[data-editor="${q(id)}"]`);
   if (!editor) return;
-  for (const f of ['name', 'ruleType', 'ruleChars', 'mode', 'scaleId', 'root', 'lo', 'hi', 'program']) {
+  for (const f of ['name', 'ruleType', 'ruleChars', 'mode', 'scaleId', 'root', 'direction', 'rules', 'microtonal', 'lo', 'hi', 'program']) {
     const p = editor.querySelector(`[id="e-${q(id)}-${f}"]`);
     if (p) setFieldError(p, errs[f] ?? '');
     const inputEl = editor.querySelector(`[data-tfield="${f}"]`);
@@ -591,6 +594,15 @@ function onTrackField(el) {
   const id = /** @type {string} */ (editor.getAttribute('data-editor'));
   const v = /** @type {HTMLInputElement} */ (el).value;
   const num_ = v.trim() === '' ? NaN : Number(v);
+  if (field === 'scaleRegion' || field === 'scaleKind' || field === 'scaleSearch') {
+    const val = (/** @type {string} */ f) => /** @type {HTMLInputElement} */ (editor.querySelector(`[data-tfield=${f}]`)).value;
+    const filter = { region: val('scaleRegion'), kind: val('scaleKind'), query: val('scaleSearch') };
+    const cur = state.tracks.find((t) => t.id === id)?.mapping.scaleId ?? '';
+    /** @type {HTMLSelectElement} */ (editor.querySelector('[data-tfield=scaleId]')).innerHTML = scaleOptionsHtml(filter, cur);
+    const count = editor.querySelector(`#scale-count-${q(id)}`);
+    if (count) count.textContent = scaleCountText(filter);
+    return;
+  }
   if (field === 'category' || field === 'search') {
     const cat = /** @type {HTMLSelectElement} */ (editor.querySelector('[data-tfield=category]')).value;
     const q = /** @type {HTMLInputElement} */ (editor.querySelector('[data-tfield=search]')).value;
@@ -606,8 +618,11 @@ function onTrackField(el) {
       case 'caseSensitive': return { ...t, rule: { ...t.rule, caseSensitive: /** @type {HTMLInputElement} */ (el).checked } };
       case 'yIsVowel': return { ...t, rule: { ...t.rule, yIsVowel: /** @type {HTMLInputElement} */ (el).checked } };
       case 'mode': return { ...t, mapping: { ...t.mapping, mode: /** @type {any} */ (v) } };
-      case 'scaleId': return { ...t, mapping: { ...t.mapping, scaleId: v } };
+      case 'scaleId': rememberScale(v); return { ...t, mapping: { ...t.mapping, scaleId: v } };
       case 'root': return { ...t, mapping: { ...t.mapping, root: Number(v) } };
+      case 'direction': return { ...t, mapping: { ...t.mapping, direction: /** @type {'set'|'contour'} */ (v) } };
+      case 'microtonal': return { ...t, mapping: { ...t.mapping, microtonal: /** @type {'bend'|'nearest'} */ (v) } };
+      case 'rulesApply': return { ...t, mapping: { ...t.mapping, rules: /** @type {HTMLInputElement} */ (el).checked ? 'apply' : 'off' } };
       case 'lo': return { ...t, mapping: { ...t.mapping, lo: num_ } };
       case 'hi': return { ...t, mapping: { ...t.mapping, hi: num_ } };
       case 'germanExt': { const { germanExt: _g, ...rest } = t.rule; return { ...t, rule: /** @type {HTMLInputElement} */ (el).checked ? { ...rest, germanExt: true } : rest }; }
@@ -618,6 +633,68 @@ function onTrackField(el) {
   const t = state.tracks.find((x) => x.id === id);
   if (t) refreshEditorVisibility(/** @type {HTMLElement} */ (editor), t);
   onSettingsChange();
+}
+
+/* ---------- Tonleiter: zuletzt verwendet, Hörprobe, Scala (Phase F) ---------- */
+
+const RECENT_KEY = 'ttm-recent-scales';
+/** Zuletzt verwendete Tonleitern laden (localStorage optional; ohne Speicher bleibt die Liste leer). */
+function loadRecentScales() {
+  try { const v = JSON.parse(window.localStorage.getItem(RECENT_KEY) ?? '[]'); if (Array.isArray(v)) setRecentScales(v.filter((x) => typeof x === 'string')); } catch { /* ohne Speicher */ }
+}
+/** @param {string} id */
+function rememberScale(id) {
+  if (!getTonalSystem(id) || id.startsWith('user-')) return; // importierte Tonleitern verschwinden beim Neuladen
+  const list = pushRecent(getRecentScales(), id);
+  setRecentScales(list);
+  try { window.localStorage.setItem(RECENT_KEY, JSON.stringify(list)); } catch { /* ohne Speicher */ }
+}
+
+/** Meldung unter den Tonleiter-Werkzeugen des geöffneten Editors. @param {string} id @param {string} text */
+function scaleToolMessage(id, text) {
+  const el = tracksList.querySelector(`[id="scala-msg-${q(id)}"]`);
+  if (el) el.textContent = text;
+  announce(text);
+}
+
+/** Hörprobe der Tonleiter einer Spur mit deren Instrument. @param {import('../core/tracks.js').TrackConfig} t */
+async function auditionScale(t) {
+  const arr = buildScaleAudition(t.mapping, t.instrument);
+  if (!arr || arr.tracks[0].notes.length === 0) { scaleToolMessage(t.id, 'Für diese Einstellung gibt es keine Hörprobe.'); return; }
+  const name = getTonalSystem(t.mapping.scaleId)?.name ?? t.mapping.scaleId;
+  const res = await player.start(arr, { onEnd: (reason) => { if (reason === 'finished') scaleToolMessage(t.id, `Hörprobe „${name}“ beendet.`); } });
+  if (res.ok) { stopBtn.disabled = false; scaleToolMessage(t.id, `Hörprobe „${name}“: ${res.notes} Töne, eine Periode aufwärts${getTonalSystem(t.mapping.scaleId)?.pitch.descending ? ' und abwärts' : ''}.`); }
+  else if (res.reason !== 'superseded') scaleToolMessage(t.id, res.message);
+}
+
+/** Tonleiter einer Spur als .scl herunterladen. @param {import('../core/tracks.js').TrackConfig} t */
+function exportScala(t) {
+  const sys = getTonalSystem(t.mapping.scaleId);
+  if (!sys) { scaleToolMessage(t.id, 'Unbekannte Tonleiter: kein Export möglich.'); return; }
+  downloadBlob(new Blob([toScala(sys)], { type: 'text/plain;charset=utf-8' }), scalaFilename(sys));
+  scaleToolMessage(t.id, `Exportiert: ${scalaFilename(sys)}${sys.pitch.descending ? ' (ohne Abstiegsform, die Scala nicht darstellen kann)' : ''}.`);
+}
+
+/** Scala-Datei einlesen, als eigene Tonleiter registrieren und der Spur zuweisen. @param {HTMLInputElement} input */
+async function importScala(input) {
+  const card = input.closest('li.track-card');
+  const id = card?.getAttribute('data-track') ?? '';
+  const file = input.files?.[0];
+  input.value = '';
+  if (!file || !id) return;
+  try {
+    if (file.size > 200_000) throw new Error('Die Datei ist zu groß für eine Scala-Datei (höchstens 200 KB).');
+    const scl = parseScala(await file.text());
+    const { entry, warnings } = scalaToSystem(scl, file.name);
+    const r = registerUserSystem(entry);
+    if (!r.ok) throw new Error(`Die Tonleiter ist ungültig: ${r.problems.join('; ')}`);
+    updateTrack(id, (t) => ({ ...t, mapping: { ...t.mapping, mode: 'B', scaleId: r.system.id } }));
+    renderTracks();
+    onSettingsChange();
+    scaleToolMessage(id, `Importiert: „${r.system.name}“ (${r.system.pitch.steps.length} Töne). Gilt nur bis zum Neuladen der Seite.${warnings.length ? ` Hinweis: ${warnings.join(' ')}` : ''}`);
+  } catch (err) {
+    scaleToolMessage(id, `Import fehlgeschlagen: ${err instanceof Error ? err.message : String(err)}`);
+  }
 }
 
 /** @param {string} id */
@@ -637,6 +714,8 @@ function onTrackAction(btn) {
   const t = state.tracks[idx];
   switch (act) {
     case 'enabled': updateTrack(id, (x) => ({ ...x, enabled: /** @type {HTMLInputElement} */ (btn).checked })); onSettingsChange(); announce(`Spur ${t.name} ${/** @type {HTMLInputElement} */ (btn).checked ? 'aktiviert' : 'deaktiviert'}.`); break;
+    case 'audition-scale': void auditionScale(t); break;
+    case 'scala-export': exportScala(t); break;
     case 'mute': ui(id).mute = !ui(id).mute; updateTrackCards(); pushPlayerState(id); announce(`Spur ${t.name} ${ui(id).mute ? 'stumm' : 'wieder hörbar'} (nur Vorschau).`); break;
     case 'solo': ui(id).solo = !ui(id).solo; updateTrackCards(); pushPlayerState(id); announce(`Solo für ${t.name} ${ui(id).solo ? 'an' : 'aus'} (nur Vorschau).`); break;
     case 'volume': ui(id).volume = Number(/** @type {HTMLInputElement} */ (btn).value); pushPlayerState(id); break;
@@ -701,6 +780,7 @@ tracksList.addEventListener('change', (e) => {
   const el = /** @type {HTMLElement} */ (e.target);
   if (el.hasAttribute('data-tfield') && (el.tagName === 'SELECT' || /** @type {HTMLInputElement} */ (el).type === 'checkbox')) onTrackField(el);
   else if (el.getAttribute('data-tact') === 'enabled') onTrackAction(el);
+  else if (el.getAttribute('data-tact') === 'scala-import') void importScala(/** @type {HTMLInputElement} */ (el));
 });
 tracksList.addEventListener('click', (e) => {
   const btn = /** @type {Element} */ (e.target).closest('button[data-tact]');
@@ -804,6 +884,7 @@ bindInteractions(previewEl, 'preview');
 hydrateIconSlots(document);
 initTheme(/** @type {HTMLButtonElement} */ ($('btn-theme')), { onChange: (t) => announce(t === 'dark' ? 'Dunkles Design aktiv.' : 'Helles Design aktiv.') });
 initSettings();
+loadRecentScales();
 renderTracks();
 updateInputState();
 updatePreview();

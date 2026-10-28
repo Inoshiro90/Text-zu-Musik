@@ -4,7 +4,7 @@
  * Alle aktiven Spuren mit ihren Noten (absolute Ticks der Master-Zeitachse, Tonhöhe der Spur), gemeinsames Tempo und
  * gemeinsame Gesamtlänge. Pausen sind nur als Lücken enthalten. Mute/Solo gehören NICHT hierher (reine Hörkontrolle der Vorschau).
  *
- * @typedef {{ seq:number, startTick:number, durationTick:number, midi:number, velocity:number }} ArrNote
+ * @typedef {{ seq:number, startTick:number, durationTick:number, midi:number, velocity:number, cents?:number }} ArrNote  cents ≠ 0 nur bei Mikrotönen
  * @typedef {{ id:string, name:string, program:number, sound?:string, notes:readonly ArrNote[] }} ArrTrack
  * @typedef {{ ppq:number, tempoBpm:number, totalTicks:number, events:readonly import('./timeline.js').MasterEvent[], tracks:readonly ArrTrack[] }} Arrangement
  */

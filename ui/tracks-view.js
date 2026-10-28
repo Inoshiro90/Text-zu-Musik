@@ -2,7 +2,11 @@
 /** Spuren-Oberfläche: Karten mit Kurzinfo und Bedienelementen, aufklappbarer Editor, Routing-Übersicht. Keine fachliche Logik. */
 import { RULE_TYPES, RULE_GROUPS, describeRule, parseCustomChars, sonorityDefaults } from '../core/tracks.js';
 import { isSonorityId } from '../core/sonority-classes.js';
-import { SCALES, PITCH_CLASS_NAMES, noteLabel } from '../core/scales.js';
+import { PITCH_CLASS_NAMES, noteLabel, noteName, pitchName, getTonalSystem, resolvePitches, hasDescending, hasApplicableRules, isTwelveTone } from '../core/scales.js';
+import { resolveSystemPitches } from '../core/tonal/pitch.js';
+import { periodOf } from '../core/tonal/schema.js';
+import { allTonalSystems } from '../core/tonal/library.js';
+import { searchSystems, groupByFamily, availableFilters, materialSiblings, sourcesOf, stepPattern, isSimplified, isMicrotonal, KIND_LABELS, EVIDENCE_LABELS, regionName } from '../core/tonal/catalog.js';
 import { CATEGORIES, INSTRUMENTS, primaryCategory, resolveInstrument, searchEntries, instrumentKey } from '../audio/instrument-catalog.js';
 import { esc, num, iconSvg, errorInner, noticeHtml } from './dom.js';
 import { trackColorClass } from './piano-roll.js';
@@ -13,8 +17,17 @@ import { trackColorClass } from './piano-roll.js';
 export function describeMapping(m) {
   if (m.mode === 'A') return 'Modus A (0–127)';
   if (m.mode === 'A2') return `Modus A2 ${noteLabel(m.lo)}–${noteLabel(m.hi)}`;
-  const sc = SCALES.find((s) => s.id === m.scaleId)?.name ?? m.scaleId;
-  return `${sc} ab ${PITCH_CLASS_NAMES[m.root] ?? '?'}, ${noteLabel(m.lo)}–${noteLabel(m.hi)}`;
+  const sc = getTonalSystem(m.scaleId)?.name ?? m.scaleId;
+  const micro = getTonalSystem(m.scaleId) && !isTwelveTone(m.scaleId) ? (m.microtonal === 'nearest' ? 'mikrotonal, gerundet' : 'mikrotonal') : '';
+  const opts = [micro, m.direction === 'contour' && hasDescending(m.scaleId) ? 'Auf-/Abstieg' : '', m.rules === 'apply' && hasApplicableRules(m.scaleId) ? 'Tonhierarchie' : ''].filter(Boolean);
+  return `${sc} ab ${PITCH_CLASS_NAMES[m.root] ?? '?'}, ${noteLabel(m.lo)}–${noteLabel(m.hi)}${opts.length ? ` · ${opts.join(' · ')}` : ''}`;
+}
+
+/** Zusätzliche Sichtbarkeits-Schlüssel im Editor: „dir“ (Tonleiter hat Abstiegsform), „hier“ (hat Tonhierarchie). @param {import('../core/tracks.js').TrackMapping} m */
+function mappingShowKeys(m) {
+  if (m.mode !== 'B') return [];
+  const sys = getTonalSystem(m.scaleId);
+  return [hasDescending(m.scaleId) ? 'dir' : '', hasApplicableRules(m.scaleId) ? 'hier' : '', sys && !isTwelveTone(m.scaleId) ? 'micro' : ''].filter(Boolean);
 }
 
 /** Kurzinfo einer Spur (für die Karte). @param {import('../core/tracks.js').TrackConfig} t @param {import('../core/pipeline.js').TrackResult|undefined} res @param {number} index */
@@ -47,6 +60,123 @@ export function instrumentOptionsHtml(category, query, selected) {
   const cur = resolveInstrument(selected);
   const withSel = list.some((i) => i.key === key) ? list : [{ key, label: cur.sound ? `${cur.name} (Klangprofil)` : `${cur.gmNumber}. ${cur.name}` }, ...list];
   return withSel.map((i) => `<option value="${esc(i.key)}"${i.key === key ? ' selected' : ''}>${esc(i.label)}</option>`).join('');
+}
+
+/* ---------- Tonleiterauswahl (Tonsystem-Bibliothek) ---------- */
+
+/** Filterwerte, die in der Bibliothek vorkommen (berechnet einmal beim Laden). */
+const FILTERS = availableFilters();
+
+/** Zuletzt verwendete Tonleitern (höchstens 5; Verwaltung und Speicherung in ui/app.js). @type {string[]} */
+let RECENT = [];
+export const MAX_RECENT_SCALES = 5;
+
+/** @param {readonly string[]} ids */
+export function setRecentScales(ids) {
+  RECENT = [...new Set(ids)].filter((id) => getTonalSystem(id)).slice(0, MAX_RECENT_SCALES);
+}
+export const getRecentScales = () => [...RECENT];
+
+/** Neue Liste mit `id` vorne. @param {readonly string[]} list @param {string} id */
+export const pushRecent = (list, id) => [id, ...list.filter((x) => x !== id)].slice(0, MAX_RECENT_SCALES);
+
+/** @typedef {{ region?:string, kind?:string, query?:string }} ScaleFilter */
+
+/** Optionstext mit Kennzeichen als Text (nicht nur Farbe). @param {import('../core/tonal/schema.js').TonalSystem} s */
+function scaleOptionLabel(s) {
+  const tags = [isSimplified(s) && !/vereinfacht/i.test(s.name) ? 'vereinfacht' : '', isMicrotonal(s) ? 'mikrotonal' : ''].filter(Boolean);
+  return tags.length ? `${s.name} · ${tags.join(' · ')}` : s.name;
+}
+
+/**
+ * Optionsliste der Tonleiterauswahl: Optgroup je Familie, gefiltert nach Region, Typ und Suche.
+ * Die aktuelle Tonleiter bleibt immer wählbar, auch wenn die Filter sie ausblenden (eigene Gruppe „Aktuelle Auswahl“).
+ * @param {ScaleFilter} filter @param {string} selected
+ */
+export function scaleOptionsHtml(filter, selected) {
+  const hits = searchSystems(filter);
+  const opt = (/** @type {import('../core/tonal/schema.js').TonalSystem} */ s) => `<option value="${esc(s.id)}"${s.id === selected ? ' selected' : ''}>${esc(scaleOptionLabel(s))}</option>`;
+  const cur = getTonalSystem(selected);
+  const head = !hits.some((s) => s.id === selected)
+    ? `<optgroup label="Aktuelle Auswahl">${cur ? opt(cur) : `<option value="${esc(selected)}" selected>${esc(selected)} (unbekannt)</option>`}</optgroup>`
+    : '';
+  const noFilter = (!filter.region || filter.region === 'alle') && (!filter.kind || filter.kind === 'alle') && !(filter.query ?? '').trim();
+  const recent = noFilter ? RECENT.map((id) => getTonalSystem(id)).filter((s) => s !== undefined) : [];
+  const recentHtml = recent.length
+    ? `<optgroup label="Zuletzt verwendet">${recent.map((s) => `<option value="${esc(s.id)}">${esc(scaleOptionLabel(s))}</option>`).join('')}</optgroup>`
+    : '';
+  return head + recentHtml + groupByFamily(hits).map((g) => `<optgroup label="${esc(g.name)}">${g.systems.map(opt).join('')}</optgroup>`).join('');
+}
+
+/** „12 von 33 Tonleitern“ bzw. Hinweis bei keinem Treffer. @param {ScaleFilter} filter */
+export function scaleCountText(filter) {
+  const n = searchSystems(filter).length;
+  const total = allTonalSystems().length;
+  if (n === 0) return `Keine Tonleiter gefunden (${total} insgesamt). Filter oder Suche ändern.`;
+  return n === total ? `${total} Tonleitern` : `${n} von ${total} Tonleitern`;
+}
+
+/** Tonnamen ab Grundton (Tonklassen). @param {readonly number[]} steps @param {number} root */
+const pitchClassNames = (steps, root) => steps.map((s) => PITCH_CLASS_NAMES[(root + s) % 12]).join(' ');
+
+/**
+ * Inhalt der Info-Box zur gewählten Tonleiter: Tonmaterial ab Grundton, Notenvorschau im Tonumfang, Herkunft, Beleg, Quellen.
+ * @param {{ scaleId:string, root:number, lo:number, hi:number }} m
+ */
+export function scaleInfoHtml(m) {
+  const s = getTonalSystem(m.scaleId);
+  if (!s) return '<p class="muted small">Unbekannte Tonleiter.</p>';
+  const rootOk = Number.isInteger(m.root) && m.root >= 0 && m.root <= 11;
+  const root = rootOk ? m.root : 0;
+  /** @type {string[]} */ const rows = [];
+  const dd = (/** @type {string} */ k, /** @type {string} */ v) => rows.push(`<div><dt>${k}</dt><dd>${v}</dd></div>`);
+  if (s.pitch.unit === 'semitones') {
+    dd(`Tonmaterial ab ${esc(PITCH_CLASS_NAMES[root])}`, esc(pitchClassNames(s.pitch.steps, root)));
+    dd('Stufen', `${s.pitch.steps.length} · Abstände in Halbtönen ${esc(stepPattern(s))}`);
+    if (s.pitch.descending) dd('Abstiegsform', `${esc(pitchClassNames(s.pitch.descending, root))} <span class="muted">(wirkt mit „Auf- und Abstieg beachten“)</span>`);
+  } else {
+    // Mikrotonal: eine Periode ab dem Grundton in der Referenz-Oktave, als nächste Taste mit Abweichung
+    const period = periodOf(s.pitch);
+    const one = resolveSystemPitches(s, { root, lo: 0, hi: 127 }).filter((p) => {
+      const c = p.midi * 100 + p.cents - (60 + root) * 100;
+      return c >= -0.001 && c < period - 0.001;
+    });
+    dd(`Tonmaterial ab ${esc(PITCH_CLASS_NAMES[root])}`, esc(one.map((p) => pitchName(p.midi, p.cents).replace(/-?\d+(?= |$)/, '')).join(' · ')));
+    const fmt = (/** @type {number} */ v) => (+v.toFixed(1)).toLocaleString('de-DE', { useGrouping: false });
+    dd('Stufen (Cent)', `${s.pitch.steps.length} · ${esc(s.pitch.steps.map(fmt).join('; '))}${period !== 1200 ? ` <span class="muted">(Periode ${fmt(period)} Cent statt Oktave)</span>` : ''}`);
+    dd('Abstände (Cent)', esc(stepPattern(s).split('-').map((v) => fmt(Number(v))).join(' · ')));
+    if (s.pitch.descending) dd('Abstiegsform (Cent)', `${esc(s.pitch.descending.map(fmt).join('; '))} <span class="muted">(wirkt mit „Auf- und Abstieg beachten“)</span>`);
+  }
+  const rangeOk = [m.lo, m.hi].every((v) => Number.isInteger(v) && v >= 0 && v <= 127) && m.lo < m.hi;
+  if (rangeOk && rootOk) {
+    const notes = resolvePitches({ scaleId: s.id, root, lo: m.lo, hi: m.hi });
+    const max = 24;
+    const shown = notes.slice(0, max).map((p) => pitchName(p.midi, p.cents)).join(isTwelveTone(s.id) ? ' ' : ' · ');
+    dd('Im Tonumfang', notes.length === 0 ? 'keine Töne' : `${notes.length} Töne: ${esc(shown)}${notes.length > max ? ' …' : ''}`);
+  }
+  dd('Typ', esc(KIND_LABELS[s.kind]));
+  dd('Herkunft', `${esc(s.tradition)} <span class="muted">(${esc(s.region.map(regionName).join(', '))})</span>`);
+  if (s.original?.length) dd('Originalname', esc(s.original.map((o) => (o.romanization ? `${o.text} (${o.romanization})` : o.text)).join(', ')));
+  if (s.rules && s.pitch.unit === 'semitones') {
+    const st = s.pitch.steps;
+    const names = (/** @type {readonly number[]} */ idx) => idx.map((k) => PITCH_CLASS_NAMES[(root + st[k]) % 12]).join(', ');
+    const parts = [];
+    if (s.rules.center !== undefined) parts.push(`Zentrum ${names([s.rules.center])}`);
+    if (s.rules.predominant?.length) parts.push(`Haupttöne ${names(s.rules.predominant)}`);
+    if (s.rules.avoid?.length) parts.push(`gemieden ${names(s.rules.avoid)}`);
+    if (parts.length) dd('Tonhierarchie', `${esc(parts.join(' · '))} <span class="muted">(wirkt mit „Tonhierarchie anwenden“)</span>`);
+  }
+  const sib = materialSiblings(s.id);
+  const SIB_MAX = 8;
+  if (sib.length) dd('Gleiches Tonmaterial wie', `${esc(sib.slice(0, SIB_MAX).map((x) => x.name).join(', '))}${sib.length > SIB_MAX ? ` <span class="muted">und ${sib.length - SIB_MAX} weitere</span>` : ''}`);
+  if (s.aliases?.length) dd('Auch bekannt als', esc(s.aliases.join(', ')));
+  dd('Belegstatus', esc(EVIDENCE_LABELS[s.evidence]));
+  const src = sourcesOf(s).map((q) => {
+    const label = `${q.title} – ${q.author}${q.year && q.year !== '–' ? `, ${q.year}` : ''}`;
+    return `<li>${q.url ? `<a href="${esc(q.url)}" target="_blank" rel="noopener noreferrer">${esc(label)}</a>` : esc(label)}</li>`;
+  }).join('');
+  const notes = s.notes ? `<p class="small">${isSimplified(s) ? '<strong>Vereinfachte Fassung.</strong> ' : ''}${esc(s.notes)}</p>` : '';
+  return `<dl class="track-info scale-info__list">${rows.join('')}</dl>${notes}<p class="small"><strong>Quellen</strong></p><ul class="small scale-info__sources">${src}</ul>`;
 }
 
 /** Gruppierte Regelauswahl (optgroup je Gruppe). @param {string} selected */
@@ -85,12 +215,31 @@ export function editorHtml(t, errors) {
   </fieldset>
   <fieldset><legend>Tonhöhen dieser Spur</legend>
     <div class="field"><label for="${fid(i, 'mode')}">Mapping-Modus</label><select id="${fid(i, 'mode')}" data-tfield="mode" aria-describedby="e-${i}-mode">${selectOptions(mode, [{ value: 'B', label: 'B: Tonleiter' }, { value: 'A2', label: 'A2: begrenzter chromatischer Bereich' }, { value: 'A', label: 'A: gesamter MIDI-Bereich (0–127)' }])}</select>${err('mode')}</div>
-    <div class="field" data-show="B"${mode === 'B' ? '' : ' hidden'}><label for="${fid(i, 'scaleId')}">Tonleiter</label><select id="${fid(i, 'scaleId')}" data-tfield="scaleId" aria-describedby="e-${i}-scaleId">${selectOptions(t.mapping.scaleId, SCALES.map((s) => ({ value: s.id, label: s.name })))}</select>${err('scaleId')}</div>
+    <div class="field-row scale-filters" data-show="B"${mode === 'B' ? '' : ' hidden'} role="group" aria-label="Tonleiter finden">
+      <div class="field"><label for="${fid(i, 'scaleRegion')}">Region</label><select id="${fid(i, 'scaleRegion')}" data-tfield="scaleRegion">${selectOptions('alle', [{ value: 'alle', label: 'Alle Regionen' }, ...FILTERS.regions.map((r) => ({ value: r.id, label: r.name }))])}</select></div>
+      <div class="field"><label for="${fid(i, 'scaleKind')}">Typ</label><select id="${fid(i, 'scaleKind')}" data-tfield="scaleKind">${selectOptions('alle', [{ value: 'alle', label: 'Alle Typen' }, ...FILTERS.kinds.map((k) => ({ value: k.id, label: k.name }))])}</select></div>
+      <div class="field"><label for="${fid(i, 'scaleSearch')}">Tonleiter suchen</label><input id="${fid(i, 'scaleSearch')}" data-tfield="scaleSearch" type="search" placeholder="z. B. Dorisch, Blues, Freygish" autocomplete="off" aria-describedby="scale-count-${i}"></div>
+    </div>
+    <div class="field" data-show="B"${mode === 'B' ? '' : ' hidden'}><label for="${fid(i, 'scaleId')}">Tonleiter</label><select id="${fid(i, 'scaleId')}" data-tfield="scaleId" aria-describedby="e-${i}-scaleId scale-count-${i}">${scaleOptionsHtml({}, t.mapping.scaleId)}</select>${err('scaleId')}
+      <p class="muted small" id="scale-count-${i}" aria-live="polite">${esc(scaleCountText({}))}</p></div>
+    <div class="scale-tools" data-show="B"${mode === 'B' ? '' : ' hidden'} role="group" aria-label="Tonleiter anhören, exportieren, importieren">
+      <button type="button" class="btn btn--wrap" data-tact="audition-scale">${iconSvg('play')}<span class="btn__label">Tonleiter anhören</span></button>
+      <button type="button" class="btn btn--wrap" data-tact="scala-export">${iconSvg('download')}<span class="btn__label">Als Scala-Datei (.scl)</span></button>
+      <label class="btn btn--wrap" for="${fid(i, 'scalaImport')}">${iconSvg('upload')}<span class="btn__label">Scala-Datei importieren</span></label><input id="${fid(i, 'scalaImport')}" class="sr-only" type="file" accept=".scl,text/plain" data-tact="scala-import" aria-describedby="scala-msg-${i}">
+      <p class="muted small scale-tools__msg" id="scala-msg-${i}" aria-live="polite">Importierte Tonleitern gelten nur bis zum Neuladen der Seite.</p>
+    </div>
     <div class="field" data-show="B"${mode === 'B' ? '' : ' hidden'}><label for="${fid(i, 'root')}">Grundton</label><select id="${fid(i, 'root')}" data-tfield="root" aria-describedby="e-${i}-root">${selectOptions(t.mapping.root, PITCH_CLASS_NAMES.map((n, k) => ({ value: k, label: n })))}</select>${err('root')}</div>
+    <div class="field" data-show="dir"${mappingShowKeys(t.mapping).includes('dir') ? '' : ' hidden'}><label for="${fid(i, 'direction')}">Richtung</label><select id="${fid(i, 'direction')}" data-tfield="direction" aria-describedby="e-${i}-direction dir-help-${i}">${selectOptions(t.mapping.direction ?? 'set', [{ value: 'set', label: 'Nur Tonvorrat (Standard)' }, { value: 'contour', label: 'Auf- und Abstieg beachten' }])}</select>${err('direction')}
+      <p class="muted small" id="dir-help-${i}">Diese Tonleiter hat eine eigene Abstiegsform. Mit „Auf- und Abstieg beachten“ gilt sie, sobald der nächste Ton der Aufstiegsform tiefer läge als der vorherige Ton dieser Spur.</p></div>
+    <div class="field check" data-show="hier"${mappingShowKeys(t.mapping).includes('hier') ? '' : ' hidden'}><input id="${fid(i, 'rulesApply')}" data-tfield="rulesApply" type="checkbox"${t.mapping.rules === 'apply' ? ' checked' : ''} aria-describedby="e-${i}-rules"><label for="${fid(i, 'rulesApply')}">Tonhierarchie anwenden: Haupttöne doppelt so oft treffen, gemiedene Töne weglassen</label>${err('rules')}</div>
+    <div class="field" data-show="micro"${mappingShowKeys(t.mapping).includes('micro') ? '' : ' hidden'}><label for="${fid(i, 'microtonal')}">Mikrotöne</label><select id="${fid(i, 'microtonal')}" data-tfield="microtonal" aria-describedby="e-${i}-microtonal micro-help-${i}">${selectOptions(t.mapping.microtonal ?? 'bend', [{ value: 'bend', label: 'Genau (Pitch-Bend)' }, { value: 'nearest', label: 'Auf nächste Taste runden' }])}</select>${err('microtonal')}
+      <p class="muted small" id="micro-help-${i}">Diese Tonleiter hat Töne zwischen den Klaviertasten. Vorschau und WAV-Export spielen sie genau. Im MIDI-Export entstehen Pitch-Bend-Befehle (Bereich ±2 Halbtöne); manche MIDI-Geräte ignorieren sie. „Runden“ verwendet stattdessen die nächste Taste.</p></div>
     <div class="field-row" data-show="A2 B"${mode === 'B' || mode === 'A2' ? '' : ' hidden'}>
       <div class="field"><label for="${fid(i, 'lo')}">Tonumfang von (MIDI)</label><input id="${fid(i, 'lo')}" data-tfield="lo" type="number" min="0" max="127" step="1" inputmode="numeric" value="${Number.isFinite(t.mapping.lo) ? t.mapping.lo : ''}" aria-describedby="e-${i}-lo n-${i}-lo"${inv('lo')}><p class="muted small" id="n-${i}-lo">${noteHint(t.mapping.lo)}</p>${err('lo')}</div>
       <div class="field"><label for="${fid(i, 'hi')}">bis (MIDI)</label><input id="${fid(i, 'hi')}" data-tfield="hi" type="number" min="0" max="127" step="1" inputmode="numeric" value="${Number.isFinite(t.mapping.hi) ? t.mapping.hi : ''}" aria-describedby="e-${i}-hi n-${i}-hi"${inv('hi')}><p class="muted small" id="n-${i}-hi">${noteHint(t.mapping.hi)}</p>${err('hi')}</div>
     </div>
+    <details class="help scale-info-box" data-show="B"${mode === 'B' ? '' : ' hidden'}><summary>Über diese Tonleiter${iconSvg('chevron-down', 'disclosure-chevron')}</summary>
+      <div class="scale-info" id="scale-info-${i}">${scaleInfoHtml(t.mapping)}</div></details>
   </fieldset>
   <fieldset><legend>Instrument</legend>
     <div class="field-row">
@@ -212,7 +361,7 @@ export function renderRoutingSummary(r) {
 
 /** Sichtbarkeit abhängiger Felder im geöffneten Editor aktualisieren. @param {HTMLElement} editor @param {import('../core/tracks.js').TrackConfig} t */
 export function refreshEditorVisibility(editor, t) {
-  const keys = new Set([t.rule.type, t.mapping.mode, ...(isSonorityId(t.rule.type) ? ['sonority'] : [])]);
+  const keys = new Set([t.rule.type, t.mapping.mode, ...(isSonorityId(t.rule.type) ? ['sonority'] : []), ...mappingShowKeys(t.mapping)]);
   editor.querySelectorAll('[data-show]').forEach((el) => {
     /** @type {HTMLElement} */ (el).hidden = !(el.getAttribute('data-show') ?? '').split(' ').some((k) => keys.has(/** @type {any} */ (k)));
   });
@@ -225,6 +374,8 @@ export function refreshEditorVisibility(editor, t) {
   const info = editor.querySelector(`#chars-info-${t.id}`);
   if (info) info.textContent = customInfo(t);
   for (const k of ['lo', 'hi']) { const n = editor.querySelector(`#n-${t.id}-${k}`); if (n) n.textContent = noteHint(/** @type {any} */ (t.mapping)[k]); }
+  const si = editor.querySelector(`#scale-info-${t.id}`);
+  if (si) si.innerHTML = scaleInfoHtml(t.mapping);
 }
 
 export { INSTRUMENTS };

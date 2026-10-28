@@ -14,7 +14,7 @@ export const RANGES = Object.freeze({
 });
 
 /**
- * @typedef {{ mode:'A'|'A2'|'B', scaleId:string, root:number, lo:number, hi:number,
+ * @typedef {{ mode:'A'|'A2'|'B', scaleId:string, root:number, lo:number, hi:number, direction?:'set'|'contour', rules?:'off'|'apply', microtonal?:'bend'|'nearest',
  *   noteTicks:number, wordPauseTicks:number, sentencePauseTicks:number, paragraphPauseTicks:number,
  *   paragraphPause:boolean, normalizeNfc:boolean, tempoBpm:number, tracks?:readonly import('./tracks.js').TrackConfig[] }} Config
  */

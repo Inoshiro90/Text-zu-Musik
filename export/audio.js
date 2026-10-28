@@ -62,7 +62,7 @@ export function planTrackNotes(arr, track) {
   for (const n of track.notes) {
     if (!(n.durationTick > 0)) continue;
     const start = ticksToSeconds(n.startTick, arr.ppq, arr.tempoBpm);
-    out.push({ frequency: midiToFrequency(n.midi), start, end: start + ticksToSeconds(n.durationTick, arr.ppq, arr.tempoBpm), velocity: n.velocity });
+    out.push({ frequency: midiToFrequency(n.midi + (n.cents ?? 0) / 100), start, end: start + ticksToSeconds(n.durationTick, arr.ppq, arr.tempoBpm), velocity: n.velocity });
   }
   return out;
 }

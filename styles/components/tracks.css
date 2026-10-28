@@ -137,3 +137,12 @@
   .track-actions__tools { justify-content: flex-end; }
   .track-actions__tools .btn--danger { margin-left: 0; }
 }
+
+/* ─── Tonleiterauswahl: Info-Box zur gewählten Tonleiter ─── */
+details.help > .scale-info { margin-top: var(--space-2); padding: var(--space-3); background: var(--bg-warm); border-radius: var(--radius-sm); display: grid; gap: var(--space-2); }
+.scale-info > * { margin: 0; }
+.scale-info__sources { padding-left: 1.25em; display: grid; gap: var(--space-1); }
+.scale-info__sources a { overflow-wrap: anywhere; }
+.scale-tools { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
+.scale-tools__msg { flex-basis: 100%; margin: 0; }
+.scale-tools label:has(+ input:focus-visible) { box-shadow: var(--shadow-focus); }

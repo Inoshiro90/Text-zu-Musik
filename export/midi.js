@@ -98,6 +98,30 @@ export function allocateChannels(count) {
   return MELODIC_CHANNELS.slice(0, count);
 }
 
+/* ===================== Mikrotöne: Pitch-Bend (Phase E) ===================== */
+
+/** Pitch-Bend-Bereich in Halbtönen (GM-Standard; wird per RPN 0 je Spur ausdrücklich gesetzt). */
+export const PITCH_BEND_RANGE_SEMITONES = 2;
+export const PITCH_BEND_CENTER = 8192;
+
+/**
+ * 14-Bit-Pitch-Bend-Wert für eine Abweichung in Cent bei ±PITCH_BEND_RANGE_SEMITONES (0 … 16383, Mitte 8192).
+ * @param {number} cents
+ */
+export function pitchBendValue(cents) {
+  const v = PITCH_BEND_CENTER + Math.round((cents / (PITCH_BEND_RANGE_SEMITONES * 100)) * PITCH_BEND_CENTER);
+  return Math.min(16383, Math.max(0, v));
+}
+
+/** RPN 0 (Pitch Bend Sensitivity) setzen und RPN wieder abwählen; alle Ereignisse mit Delta 0. @param {number} ch */
+function rpnPitchBendRange(ch) {
+  const cc = (/** @type {number} */ c, /** @type {number} */ v) => [0x00, 0xb0 | ch, c, v];
+  return [...cc(101, 0), ...cc(100, 0), ...cc(6, PITCH_BEND_RANGE_SEMITONES), ...cc(38, 0), ...cc(101, 127), ...cc(100, 127)];
+}
+
+/** Pitch-Bend-Nachricht. @param {number} ch @param {number} value 0–16383 */
+const bendData = (ch, value) => [0xe0 | ch, value & 0x7f, (value >> 7) & 0x7f];
+
 /** Track-Name als ASCII (Umlaute transliteriert), damit jeder Sequenzer ihn korrekt anzeigt. @param {string} name @param {number} [max] */
 export function sanitizeTrackName(name, max = 60) {
   const t = String(name ?? '').replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/Ä/g, 'Ae').replace(/Ö/g, 'Oe').replace(/Ü/g, 'Ue').replace(/ß/g, 'ss')
@@ -149,19 +173,31 @@ export function arrangementToMidi(arr, { defaultVelocity = DEFAULT_VELOCITY } = 
     if (!Number.isInteger(t.program) || t.program < 0 || t.program > 127) throw new RangeError(`Spur „${t.name}“: Instrument ${t.program} außerhalb 0–127.`);
     /** @type {{ tick:number, order:number, seq:number, data:number[] }[]} */
     const items = [];
+    // Mikrotöne: Spuren sind monophon und haben einen eigenen Kanal → ein Pitch-Bend je Tonhöhenwechsel genügt.
+    // Reihenfolge am selben Tick: Note-Off (0) → Pitch-Bend (0.5) → Note-On (1), damit kein Ausklang verbogen wird.
+    const usesBend = t.notes.some((/** @type {import("../core/arrangement.js").ArrNote} */ e) => e.cents !== undefined && e.cents !== 0);
+    let bend = PITCH_BEND_CENTER;
+    let lastOff = 0;
     for (const e of t.notes) {
       if (!Number.isInteger(e.startTick) || e.startTick < 0 || !Number.isInteger(e.durationTick) || e.durationTick < 0) throw new RangeError(`Spur „${t.name}“, Ereignis ${e.seq}: Start/Dauer müssen ganze, nicht negative Ticks sein.`);
+      if (e.cents !== undefined && (!Number.isFinite(e.cents) || Math.abs(e.cents) > PITCH_BEND_RANGE_SEMITONES * 100)) throw new RangeError(`Spur „${t.name}“, Ereignis ${e.seq}: Cent-Abweichung ${e.cents} außerhalb ±${PITCH_BEND_RANGE_SEMITONES * 100}.`);
       if (!Number.isInteger(e.midi) || e.midi < 0 || e.midi > 127) throw new RangeError(`Spur „${t.name}“, Ereignis ${e.seq}: MIDI-Tonhöhe ${e.midi} außerhalb 0–127.`);
       const velocity = e.velocity === undefined ? defaultVelocity : e.velocity;
       if (!Number.isInteger(velocity) || velocity < 1 || velocity > 127) throw new RangeError(`Spur „${t.name}“, Ereignis ${e.seq}: Velocity ${velocity} außerhalb 1–127.`);
       if (e.durationTick === 0) continue;
       if (e.startTick + e.durationTick > totalTicks) throw new RangeError(`Spur „${t.name}“, Ereignis ${e.seq}: Note endet nach der gemeinsamen Gesamtlänge.`);
+      if (usesBend) {
+        const v = pitchBendValue(e.cents ?? 0);
+        if (v !== bend) { items.push({ tick: e.startTick, order: 0.5, seq: e.seq, data: bendData(ch, v) }); bend = v; }
+        lastOff = Math.max(lastOff, e.startTick + e.durationTick);
+      }
       items.push({ tick: e.startTick, order: 1, seq: e.seq, data: [0x90 | ch, e.midi, velocity] });
       items.push({ tick: e.startTick + e.durationTick, order: 0, seq: e.seq, data: [0x80 | ch, e.midi, 0] });
     }
+    if (usesBend && bend !== PITCH_BEND_CENTER) items.push({ tick: lastOff, order: 0.75, seq: Number.MAX_SAFE_INTEGER, data: bendData(ch, PITCH_BEND_CENTER) });
     items.sort((a, b) => a.tick - b.tick || a.order - b.order || a.seq - b.seq);
     /** @type {number[]} */
-    const body = [...metaText(0x03, names[i]), 0x00, 0xc0 | ch, t.program];
+    const body = [...metaText(0x03, names[i]), 0x00, 0xc0 | ch, t.program, ...(usesBend ? rpnPitchBendRange(ch) : [])];
     let last = 0;
     for (const it of items) { body.push(...encodeVlq(it.tick - last), ...it.data); last = it.tick; }
     body.push(...encodeVlq(Math.max(last, totalTicks) - last), 0xff, 0x2f, 0x00);

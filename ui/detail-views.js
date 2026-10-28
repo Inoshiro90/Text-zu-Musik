@@ -1,7 +1,7 @@
 // @ts-check
 /** Binär-, Zuordnungs- und Ereignisansicht. Liest nur Pipeline-Ergebnisse. */
 import { LIMITS } from '../core/config.js';
-import { noteLabel } from '../core/scales.js';
+import { noteLabel, pitchLabel, getTonalSystem, PITCH_CLASS_NAMES } from '../core/scales.js';
 import { esc, visibleChar, beats, num, PAUSE_LABEL, ROLE_ICON, ROLE_LABEL, iconSvg, linkMark, playMark } from './dom.js';
 
 const KIND_LABEL = { normal: 'Zeichen', whitespace: 'Leerraum', sentenceEnd: 'Satzende', punctuation: 'Satzzeichen', control: 'Steuerzeichen' };
@@ -49,7 +49,7 @@ function mappingIntro(t) {
   const c = t.mapping;
   return m.mode === 'A' ? 'Modus A: <code>m = b mod 128</code> (die Bytes 0 und 128 ergeben dieselbe Tonhöhe).'
     : m.mode === 'A2' ? `Modus A2: <code>n = hi − lo + 1 = ${c.n}</code>, <code>m = lo + (b mod n)</code> mit lo = ${m.lo}, hi = ${m.hi}.`
-      : `Modus B: Liste L der Skalentöne von ${noteLabel(m.lo)} bis ${noteLabel(m.hi)} (N = ${c.n}), <code>m(b) = L[b mod N]</code>. L = ${(c.noteList ?? []).map((n) => esc(noteLabel(n))).join(', ')}`;
+      : `Modus B (${esc(getTonalSystem(m.scaleId)?.name ?? m.scaleId)} ab ${esc(PITCH_CLASS_NAMES[m.root] ?? '?')}): Liste L der Skalentöne von ${noteLabel(m.lo)} bis ${noteLabel(m.hi)} (N = ${c.n}), <code>m(b) = L[b mod N]</code>. L = ${(c.pitchList ?? []).map((p) => esc(pitchLabel(p.midi, p.cents))).join(', ')}${c.noteListDown ? `. Auf- und Abstieg: Liegt L[b mod N] unter der vorherigen Note dieser Spur, gilt die Abstiegsliste L↓ (N↓ = ${c.nDown}) = ${(c.pitchListDown ?? []).map((p) => esc(pitchLabel(p.midi, p.cents))).join(', ')}` : ''}${m.rules === 'apply' && c.n !== new Set(c.noteList ?? []).size ? '. Tonhierarchie: Haupttöne stehen doppelt in der Liste' : ''}`;
 }
 
 /** @param {import('../core/pipeline.js').PipelineResult} r @param {number} limit */
@@ -60,7 +60,7 @@ export function renderMapping(r, limit) {
     if (e.type === 'note') {
       const by = playedBy(r, e.seq);
       const rule = by.length === 0 ? '<em>Keine aktive Spur spielt dieses Zeichen (still).</em>' : by.map(({ t, i, e: n }) => `<div><span class="trk-tag">S${i + 1}</span> ${esc(t.name)}: ${esc(n.explain.text)}</div>`).join('');
-      const out = by.length === 0 ? '<span class="muted">—</span>' : by.map(({ i, e: n }) => `<div><strong>${iconSvg('music')} S${i + 1}: ${esc(noteLabel(n.midi))}</strong></div>`).join('');
+      const out = by.length === 0 ? '<span class="muted">—</span>' : by.map(({ i, e: n }) => `<div><strong>${iconSvg('music')} S${i + 1}: ${esc(pitchLabel(n.midi, n.cents))}</strong></div>`).join('');
       return `<tr data-seq="${e.seq}" tabindex="0" class="row-note"><td>${firstCell(e.seq)}</td><td>${esc(sourceText(r, e))}</td><td><code>${e.source.bits}</code></td><td>${e.source.byteValue}</td><td>${rule}</td><td>${out}</td></tr>`;
     }
     return `<tr data-seq="${e.seq}" tabindex="0" class="row-rest"><td>${firstCell(e.seq)}</td><td>${esc(sourceText(r, e))}</td><td colspan="2">${e.source.byteIndexes.map((b) => r.bytes[b].value).join(' ')}</td><td>Strukturlauf ergibt eine ${PAUSE_LABEL[e.pauseKind]} (keine Note, auf allen Spuren still)</td><td><strong>${iconSvg('pause')} ${PAUSE_LABEL[e.pauseKind]}, ${e.durationTick} Ticks</strong></td></tr>`;
@@ -75,7 +75,7 @@ export function renderEvents(r, limit) {
     let what;
     if (e.type === 'note') {
       const by = playedBy(r, e.seq);
-      what = by.length === 0 ? `${iconSvg('music')} Note ohne Spur (still)` : `${iconSvg('music')} ${by.slice(0, 4).map(({ i, t, e: n }) => `S${i + 1} ${esc(t.name)}: Note ${esc(noteLabel(n.midi))}`).join('; ')}${by.length > 4 ? ` … (+${by.length - 4})` : ''}`;
+      what = by.length === 0 ? `${iconSvg('music')} Note ohne Spur (still)` : `${iconSvg('music')} ${by.slice(0, 4).map(({ i, t, e: n }) => `S${i + 1} ${esc(t.name)}: Note ${esc(pitchLabel(n.midi, n.cents))}`).join('; ')}${by.length > 4 ? ` … (+${by.length - 4})` : ''}`;
     } else what = `${iconSvg('pause')} ${PAUSE_LABEL[e.pauseKind]} (alle Spuren still)`;
     return `<tr data-seq="${e.seq}" tabindex="0" class="row-${e.type}"><td>${firstCell(e.seq)}</td><td>${e.type === 'note' ? 'Note' : 'Pause'}</td><td>${esc(sourceText(r, e))}</td><td>${e.startTick} <span class="muted">(${beats(e.startTick)} B)</span></td><td>${e.durationTick} <span class="muted">(${beats(e.durationTick)} B)</span></td><td>${what}</td></tr>`;
   }).join('');

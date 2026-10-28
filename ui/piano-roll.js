@@ -1,6 +1,6 @@
 // @ts-check
 /** SVG-Piano-Roll mit einer Spur (Lane) je aktiver Spur auf gemeinsamer Zeitachse. Zeichnet nur eine Seite von Master-Ereignissen. */
-import { noteLabel } from '../core/scales.js';
+import { noteLabel, pitchLabel, pitchName } from '../core/scales.js';
 import { resolveInstrument } from '../audio/instrument-catalog.js';
 import { esc, beats, PAUSE_LABEL } from './dom.js';
 
@@ -103,11 +103,11 @@ export function renderPianoRoll(master, lanes, page) {
     for (const e of l.notes) {
       const ex = x(e.startTick);
       const w = Math.max(3, e.durationTick * PX_PER_TICK - 1);
-      const ny = ly + (l.hi - e.midi) * l.rowH;
-      const label = `Spur ${l.idx + 1} ${l.t.name} – Ereignis ${e.seq + 1}: Note ${noteLabel(e.midi)}, Start ${e.startTick} Ticks, Dauer ${e.durationTick} Ticks`;
+      const ny = ly + (l.hi - e.midi - (e.cents ?? 0) / 100) * l.rowH; // Mikrotöne: vertikal um die Cent-Abweichung versetzt
+      const label = `Spur ${l.idx + 1} ${l.t.name} – Ereignis ${e.seq + 1}: Note ${pitchLabel(e.midi, e.cents)}, Start ${e.startTick} Ticks, Dauer ${e.durationTick} Ticks`;
       g += `<g class="roll-ev note ${cls}" data-seq="${e.seq}" data-track="${esc(l.t.id)}" tabindex="0" role="button" aria-label="${esc(label)}"><title>${esc(label)}</title>` +
         `<rect x="${ex}" y="${ny + 0.5}" width="${w}" height="${Math.max(2, l.rowH - 1)}" rx="2"/>` +
-        (w >= 30 && l.rowH >= 9 ? `<text class="roll-note-label" x="${ex + 3}" y="${ny + l.rowH - 3}">${esc(e.name)}</text>` : '') +
+        (w >= 30 && l.rowH >= 9 ? `<text class="roll-note-label" x="${ex + 3}" y="${ny + l.rowH - 3}">${esc(pitchName(e.midi, e.cents))}</text>` : '') +
         `${diamond(ex + 5, ny - 1)}</g>`;
     }
   }

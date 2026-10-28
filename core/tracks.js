@@ -7,7 +7,8 @@
  * Regeltypen: allgemeine Regeln, die 13 Sonoritätsklassen (IDs `sonority-…`, siehe sonority-classes.js) und „custom“.
  * `instrument.sound` (optional) ist die ID eines ergänzenden Klangprofils (Vorschau); `program` bleibt das GM-Programm für den MIDI-Export.
  * @typedef {{ type:string, chars:string, caseSensitive:boolean, yIsVowel:boolean, germanExt?:boolean }} TrackRule
- * @typedef {{ mode:'A'|'A2'|'B', scaleId:string, root:number, lo:number, hi:number }} TrackMapping
+ * @typedef {{ mode:'A'|'A2'|'B', scaleId:string, root:number, lo:number, hi:number, direction?:'set'|'contour', rules?:'off'|'apply', microtonal?:'bend'|'nearest' }} TrackMapping
+ *   direction/rules (Phase D) und microtonal (Phase E), nur Modus B: Standard 'set'/'off'/'bend' = bisheriges Verhalten.
  * @typedef {{ id:string, name:string, enabled:boolean, rule:TrackRule, mapping:TrackMapping, instrument:{ program:number, sound?:string } }} TrackConfig
  */
 import { classifyChar, segmentGraphemes } from './text.js';
@@ -159,7 +160,7 @@ export function describeRule(r) {
 /* ---------- Modell ---------- */
 
 export const DEFAULT_RULE = Object.freeze({ type: /** @type {const} */ ('all'), chars: '', caseSensitive: false, yIsVowel: false });
-export const DEFAULT_TRACK_MAPPING = Object.freeze({ mode: /** @type {const} */ ('B'), scaleId: 'dur', root: 0, lo: 60, hi: 84 });
+export const DEFAULT_TRACK_MAPPING = Object.freeze({ mode: /** @type {const} */ ('B'), scaleId: 'dur', root: 0, lo: 60, hi: 84, direction: /** @type {const} */ ('set'), rules: /** @type {const} */ ('off'), microtonal: /** @type {const} */ ('bend') });
 
 /** Ergänzt fehlende Felder mit Standardwerten (prüft nichts). @param {Partial<TrackConfig>&Record<string,any>} t @param {number} index */
 export function normalizeTrack(t, index = 0) {
@@ -170,7 +171,7 @@ export function normalizeTrack(t, index = 0) {
     name: typeof t.name === 'string' ? t.name : `Spur ${index + 1}`,
     enabled: t.enabled !== false,
     rule: { type: r.type ?? 'all', chars: typeof r.chars === 'string' ? r.chars : '', caseSensitive: r.caseSensitive === true, yIsVowel: r.yIsVowel === true, ...(r.germanExt === true ? { germanExt: true } : {}) },
-    mapping: { mode: m.mode ?? DEFAULT_TRACK_MAPPING.mode, scaleId: m.scaleId ?? DEFAULT_TRACK_MAPPING.scaleId, root: m.root ?? DEFAULT_TRACK_MAPPING.root, lo: m.lo ?? DEFAULT_TRACK_MAPPING.lo, hi: m.hi ?? DEFAULT_TRACK_MAPPING.hi },
+    mapping: { mode: m.mode ?? DEFAULT_TRACK_MAPPING.mode, scaleId: m.scaleId ?? DEFAULT_TRACK_MAPPING.scaleId, root: m.root ?? DEFAULT_TRACK_MAPPING.root, lo: m.lo ?? DEFAULT_TRACK_MAPPING.lo, hi: m.hi ?? DEFAULT_TRACK_MAPPING.hi, direction: m.direction ?? DEFAULT_TRACK_MAPPING.direction, rules: m.rules ?? DEFAULT_TRACK_MAPPING.rules, microtonal: m.microtonal ?? DEFAULT_TRACK_MAPPING.microtonal },
     instrument: { program: t.instrument?.program ?? 0, ...(typeof t.instrument?.sound === 'string' && t.instrument.sound !== '' ? { sound: t.instrument.sound } : {}) },
   });
 }
@@ -274,18 +275,27 @@ export function sonorityDefaults(ruleType) {
 /**
  * Notenereignisse einer Spur: alle Master-Noten, deren Quellzeichen getroffen wird, mit der Tonhöhe dieser Spur.
  * Startticks/Dauern kommen unverändert aus der Master-Zeitachse (Stille bleibt Stille).
+ *
+ * Auf- und Abstieg (`tableDown`, Phase D): Die erste Note der Spur nutzt immer die Aufstiegstabelle. Jede weitere Note
+ * nimmt zuerst den Ton der Aufstiegstabelle; liegt er unter der vorherigen Note DIESER Spur, gilt stattdessen der Ton der
+ * Abstiegstabelle für dasselbe Byte. Pausen unterbrechen die Folge nicht. Deterministisch, aber vom Vorgänger abhängig.
  * @param {readonly import('./timeline.js').MasterEvent[]} masterEvents
  * @param {Uint8Array} mask  Treffer je Anzeigezeichen
  * @param {readonly import('./mapping.js').MappedNote[]} table  Mapping-Tabelle der Spur (256 Einträge)
  * @param {string} trackId
+ * @param {readonly import('./mapping.js').MappedNote[]|null} [tableDown]  Abstiegstabelle (nur bei direction 'contour')
  */
-export function buildTrackEvents(masterEvents, mask, table, trackId) {
+export function buildTrackEvents(masterEvents, mask, table, trackId, tableDown = null) {
   /** @type {import('./timeline.js').NoteEvent[]} */
   const out = [];
+  /** @type {number|null} */
+  let prev = null;
   for (const e of masterEvents) {
     if (e.type !== 'note' || mask[e.source.charIndex] !== 1) continue;
-    const m = table[e.source.byteValue];
-    out.push(Object.freeze({ ...e, midi: m.midi, name: m.name, explain: m.explain, trackId }));
+    let m = table[e.source.byteValue];
+    if (tableDown && prev !== null && m.midi * 100 + (m.cents ?? 0) < prev) m = tableDown[e.source.byteValue];
+    prev = m.midi * 100 + (m.cents ?? 0);
+    out.push(Object.freeze({ ...e, midi: m.midi, name: m.name, explain: m.explain, trackId, ...(m.cents ? { cents: m.cents } : {}) }));
   }
   return Object.freeze(out);
 }

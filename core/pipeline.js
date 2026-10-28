@@ -111,7 +111,7 @@ export function runPipeline(text, configInput, prev = null) {
     let bySeq;
     if (eventsSame && p) { events = p.events; bySeq = p.bySeq; } else {
       recomputed.push(`track:${tc.id}`);
-      events = buildTrackEvents(timeline.events, mask, mapping.table, tc.id);
+      events = buildTrackEvents(timeline.events, mask, mapping.table, tc.id, mapping.tableDown);
       const arr = new Array(timeline.events.length);
       for (const e of events) arr[e.seq] = e;
       bySeq = Object.freeze(arr);
